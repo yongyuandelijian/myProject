@@ -3,11 +3,12 @@
 from docx import Document
 from docx.oxml.ns import qn
 from docx.oxml.shared import OxmlElement  # 用于添加链接
+from docx.enum.style import WD_STYLE_TYPE
+from docx.enum.text import WD_TAB_ALIGNMENT
 from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
 from docx.enum.text import WD_PARAGRAPH_ALIGNMENT,WD_TAB_LEADER
 from docx.enum.table import WD_TABLE_ALIGNMENT,WD_CELL_VERTICAL_ALIGNMENT
-# from docx.enum.table import WD_ALIGN_VERTICAL
 from docx.shared import Inches,RGBColor,Pt,Cm
 from functools import reduce
 from collections import defaultdict
@@ -26,6 +27,8 @@ import time
 import re
 import os
 import shutil
+import win32com
+from win32com.client import Dispatch
 
 class scword():
     """
@@ -47,9 +50,8 @@ class scword():
     """
     """
     当前版本存在的问题：
-    1 重复内容表格合并-这个看情况吧，需要了在加
-    2 excel不能自动插入- 需要手动插入到对应的位置
-    3 不能自动获取页码-导致生成的目录没有页码，以及页脚的页码需要手动
+    1 excel不能自动插入- 需要手动插入到对应的位置
+    2 不能自动获取页码-导致生成的目录没有页码，以及页脚的页码需要手动
     """
     def __init__(self,ny):
         self.ny=ny
@@ -137,6 +139,10 @@ class scword():
         for ri in range(len(data)):
             row = table.add_row()
             for ci in range(len(data[ri])):
+                if ci==0 and data[ri][0]==data[ri-1][0]:
+                    # 第一列如果和上一个内容重复，则将表格合并,当前单元格不用再执行任何代码
+                    table.cell(ri,0).merge(table.cell(ri+1,0))
+                    continue
                 rowcells = row.cells
                 # print(ri,ci,data[ri][ci])
                 rowcells[ci].text = str(data[ri][ci])
@@ -145,26 +151,56 @@ class scword():
                 font = run.font
                 font.size = Pt(ztdx)
                 pf = cp.paragraph_format
-                rowcells[ci].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-                if ci!=0:
-                    pf.alignment = WD_TABLE_ALIGNMENT.LEFT
-
+                rowcells[ci].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER  # 这个和源码的例子是不同的，不要直接抄源码例子的过来，否则会报错
                 pf.line_spacing = Pt(ztdx * 1.5)
-                # table.cell(0, 0).vertical_alignment = WD_ALIGN_VERTICAL.BOTTOM
                 self.setTabBgColor(table,colnum)
-
-    # 添加一个左右分割开的页眉样式
-    # from docx.enum.style import WD_STYLE_TYPE
-    # styles=doc.styles
-    # style=styles.add_style("myheadstyle",WD_STYLE_TYPE)
-    # style.base_style=styles["Normal"]
-    # tab_stops=style.paragraph_format.tab_stops
-
+                if ci != 0:
+                    pf.alignment = WD_TABLE_ALIGNMENT.LEFT
 
     doc = Document()  # 生成一个word对象
     # 设置pyecharts读取的路径
     js_path = r"../js/"
     CurrentConfig.ONLINE_HOST = js_path
+
+
+
+
+    # ymgs.tab_stops.add_tab_stop(Cm(2), WD_TABLE_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+
+    def update_pagenum(self,wordPath,ztdx,doc):
+        """更新word页码情况，获取到了总共的，但是不能和每一页对应起来，只能先放着了"""
+        # win32com操作word的一些基本设置
+        w = win32com.client.Dispatch("Word.Application")
+        w.Visible = 0
+        w.DisplayAlerts = 0
+        # 使用win32com获取页码情况
+        win32doc = w.Documents.Open(wordPath)
+        sumNum = w.ActiveDocument.ComputeStatistics(2)
+
+        # 使用docx更新页脚情况
+        footer=doc.sections[0].footer
+        yjdl=footer.paragraphs[0]
+        run=yjdl.add_run()
+        temp="共{sumNum}页".format(sumNum=sumNum)
+        print(temp)
+        run.add_text(temp)
+        font=run.font
+        font.size=Pt(ztdx)
+        yjdl.style=doc.styles["Header"]
+        yjgs=yjdl.paragraph_format
+        yjgs.alignment=WD_PARAGRAPH_ALIGNMENT.CENTER
+
+        win32doc.SaveAs(wordPath)
+        win32doc.Close()
+
+    def wordtopdf(self,wordname):
+        """将指定的word转为pdf"""
+        word=Dispatch('Word.Application')
+        doc=word.Documents.Open(wordname)
+        doc.SaveAs(wordname.replace(".docx",".pdf"),FileFormat="wdFormatPDF")  # 此方法必须安装word服务
+        doc.Close()
+        word.Quit()
+
 
     def scword(self):
         '''生成文档'''
@@ -193,6 +229,13 @@ class scword():
         ztdx_nr = 12
         ztdx_5h=10.5
 
+        # 添加一个左右分割开的页眉样式，这种可以分割类似于 页眉1/页眉2/页眉3 这样纯汉字的，图片+汉字的暂时只能空格计算好
+        # styles = doc.styles
+        # headstyle = styles.add_style("headstyle", WD_STYLE_TYPE.PARAGRAPH)
+        # headstyle.base_style = styles["Normal"]
+        # tab_stops = headstyle.paragraph_format.tab_stops
+        # tab_stops.add_tab_stop(Inches(3.25), WD_TAB_ALIGNMENT.RIGHT)
+
         # 设置matplotlib 中文显示问题
         plt.rcParams['font.sans-serif'] = ['KaiTi']  # 制定默认字体
         plt.rcParams['axes.unicode_minus'] = False   # 解决保存图像符号显示方块的问题
@@ -208,8 +251,8 @@ class scword():
         run.underline = True
         ymdl.style=doc.styles["Header"]
         ymgs=ymdl.paragraph_format
-        ymgs.tab_stops.add_tab_stop(Cm(2),WD_TABLE_ALIGNMENT.RIGHT,WD_TAB_LEADER.DOTS)  # 从中间隔开，另一边右对齐SPACES 没有作用，还需要研究
         ymgs.alignment=WD_PARAGRAPH_ALIGNMENT.CENTER
+
 
         ################################## 封面 ##################################
         paragraph = doc.add_paragraph()
@@ -729,6 +772,8 @@ class scword():
             if jb1[:jb1.index("\t")]!="第4章":
                 doc.add_page_break()  # 除最后一章，每一章完成后换页
         doc.save(self.wdmc)
+        dirpath=os.path.abspath(self.wdmc)
+        # self.update_pagenum(dirpath,ztdx_ym,doc)
 
 if __name__ == '__main__':
     starttime=time.time()

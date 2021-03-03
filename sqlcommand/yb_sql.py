@@ -2,12 +2,13 @@ import time
 import calendar
 class sqlstr(object):
     '''功能：定义月报使用到的sql语句'''
-    # dqsj = time.localtime(time.time())
-    # nf=str(dqsj.tm_year)
-    # yf=str(dqsj.tm_mon-1)
-    # 上面暂时先注销，因为没有其他数据没法测试
-    nf='2020'
-    yf='06'
+    dqsj = time.localtime(time.time())
+    nf=str(dqsj.tm_year)
+    yf=str(dqsj.tm_mon-1)
+    # 上面暂时先注销
+    # nf='2020'
+    # yf='09'
+
 
     # nf=str(temp_nf)
     # yf=str(temp_yf)
@@ -72,68 +73,81 @@ class sqlstr(object):
 
     # 分发库异常情况分单位
     __b32_ffkyc_fdw='''
-    	SELECT
-			replace(REPLACE(a.pro_mc,'税务',''),'内蒙','内蒙古') dw,
-			count( DISTINCT a.group1 ) AS cnt 
-		FROM
-			(
-			SELECT
-				pro_mc,
-				`group1` 
-			FROM
-				`ggsinfo` t1
-				LEFT JOIN pro_dm_36 t2 ON t1.project = RIGHT ( t2.pro_dm, 4 ) 
-			WHERE
-				`filename` LIKE '202006%' 
-				AND `status1` = 'ABENDED' 
-			) a 
-		GROUP BY
-			pro_mc;
-    '''
+    select replace(REPLACE(pro_mc,'税务',''),'内蒙','内蒙古') dw,sum(cnt) zs from 
+    (
+    SELECT
+        a.pro_mc,
+        a.gmtdate,
+        count( DISTINCT a.group1 ) AS cnt 
+    FROM
+        (
+        SELECT
+            pro_mc,
+            substr( `filename`, 1, 8 ) AS gmtdate,
+            `group1` 
+        FROM
+            `ggsinfo` t1
+            LEFT JOIN pro_dm_36 t2 ON t1.project = RIGHT ( t2.pro_dm, 4 ) 
+        WHERE
+            `filename` LIKE '{ny}%' 
+            AND `status1` = 'ABENDED' 
+        ) a 
+    GROUP BY
+        pro_mc,
+        a.gmtdate 
+    ) mx group by pro_mc;
+    '''.format(ny=ny)
     def get_b32_ffkyc_fdw(self):
         return self.__b32_ffkyc_fdw
 
     # 分发库异常分日期
     __zj32_ffkyc_frq='''
-		SELECT
-			a.gmtdate,
-			count( DISTINCT a.group1 ) AS cnt 
-		FROM
-			(
-			SELECT
-				substr( `filename`, 1, 8 ) AS gmtdate,
-				`group1` 
-			FROM
-				`ggsinfo` t1
-				LEFT JOIN pro_dm_36 t2 ON t1.project = RIGHT ( t2.pro_dm, 4 ) 
-			WHERE
-				`filename` LIKE '202006%' 
-				AND `status1` = 'ABENDED' 
-			) a 
-		GROUP BY
-			a.gmtdate 
-    '''
+    select gmtdate,sum(cnt) zs from 
+    (
+    SELECT
+        a.pro_mc,
+        a.gmtdate,
+        count( DISTINCT a.group1 ) AS cnt 
+    FROM
+        (
+        SELECT
+            pro_mc,
+            substr( `filename`, 1, 8 ) AS gmtdate,
+            `group1` 
+        FROM
+            `ggsinfo` t1
+            LEFT JOIN pro_dm_36 t2 ON t1.project = RIGHT ( t2.pro_dm, 4 ) 
+        WHERE
+            `filename` LIKE '{ny}%' 
+            AND `status1` = 'ABENDED' 
+        ) a 
+    GROUP BY
+        pro_mc,
+        a.gmtdate 
+    ) mx group by gmtdate;
+    '''.format(ny=ny)
     def get_zj32_ffkyc_frq(self):
         return self.__zj32_ffkyc_frq
 
     # 422 任务异常分日期
     __zj422_rwyc_frq = """
-    select rq.gmtdate,ifnull(mx.rws,0) ycs from 
-    (SELECT substr(filename, 1, 8 ) gmtdate FROM ggsinfo WHERE filename LIKE '202006%' group by substr( `filename`, 1, 8 )) rq
+    select rq.gmtdate,ifnull(mx.rws,0) ycs FROM
+    (select substr(filename,1,8) gmtdate from ggsinfo where filename like '{ny}%' group by substr(filename,1,8)) rq
     left join 
-    (SELECT bizdate, count(1) AS rws FROM operator_info WHERE bizdate LIKE '202006%' GROUP BY bizdate) mx 
-    on rq.gmtdate=mx.bizdate
-    order by rq.gmtdate;
+    (SELECT bizdate, count(1) AS rws FROM operator_info WHERE bizdate LIKE '{ny}%' GROUP BY bizdate) mx
+    on mx.bizdate=rq.gmtdate
+    order by rq.gmtdate
     """.format(ny=ny)
 
     def get_zj422_rwyc_frq(self):
         return self.__zj422_rwyc_frq
 
-    # 422 任务异常分日期总结-只要异常天情况
-    __zj421_rwyyc_frq = "SELECT bizdate, count(1) AS rws FROM operator_info WHERE bizdate LIKE '{ny}%' GROUP BY bizdate order by rws desc;".format(ny=ny)
+    # 4203 任务异常分日期  总结
+    __zj4203_rwyc_frq = """SELECT bizdate, count(1) AS rws FROM operator_info WHERE bizdate LIKE '{ny}%' GROUP BY bizdate order by rws desc;""".format(ny=ny)
 
-    def get_zj421_rwyyc_frq(self):
-        return self.__zj421_rwyyc_frq
+    def get_zj4203_rwyc_frq(self):
+        return self.__zj4203_rwyc_frq
+
 
     # 表42任务异常分单位汇总
     __b42_rwyc_fdw = '''
@@ -148,7 +162,11 @@ class sqlstr(object):
         return self.__b42_rwyc_fdw
 
     # 表43异常进程分原因
-    __b43_rwyc_fyy = "select case when length(failed_type)<2 then '未标注原因' else failed_type end yy,count(1) cs from operator_info where bizdate like '{ny}%' group by failed_type order by cs desc limit 5;".format(ny=ny)
+    __b43_rwyc_fyy = """
+    select yy,count(1) cs from 
+    (select case when LENGTH(failed_type)<2 then '云平台问题' else failed_type end yy from operator_info where bizdate like '{ny}%') mx
+    group by yy;
+    """.format(ny=ny)
     def get_b43_rwyc_fyy(self):
         return self.__b43_rwyc_fyy
 
@@ -224,7 +242,7 @@ on a.pro_dm= G2.projectname;
         return self.__b45_sjyzx.format(ny=self.ny,tablename=tablename)
 
     # 表46 数据更新情况
-    __b46_sjgxqk="select yfq,sjly,al,gx,wgx from wbsjgxqk where yfq='{ny}';".format(ny=ny)
+    __b46_sjgxqk="select yfq,sjly,al,gx,wgx from wbsjgxqk;"
     def get_b46_sjgxqk(self):
         return self.__b46_sjgxqk
 
@@ -237,5 +255,3 @@ on a.pro_dm= G2.projectname;
 if __name__ == '__main__':
     sql=sqlstr("20205")
     print(sql.ny)
-    dqsj=time.strftime('%Y%m%d%H%M%S',time.localtime(time.time()))
-    print(dqsj)

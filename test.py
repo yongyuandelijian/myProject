@@ -15,7 +15,7 @@ from pyecharts.charts import Map
 from collections import defaultdict
 from pyecharts import options as opts
 from pyecharts.render import make_snapshot
-from pyecharts.charts import Bar,Line
+from pyecharts.charts import Line
 from pyecharts.charts import Pie
 import calendar
 import time
@@ -23,57 +23,49 @@ from pyecharts.globals import CurrentConfig   # 用于设置pyecharts读取本�
 import xlsxwriter
 from wbnr.yb_text import get_ybwb
 from snapshot_selenium import snapshot
-import os
-import shutil
+# 1.xlwt 只能创建拓展名为 xls 的 excel 文件, 无法创建 xlsx 拓展名, 而 xlsxwriter 两个都可以创建
+# 2.xlwt 所用样式过多会导致无法使用,xlsxwriter 则不会有问题
+# 3. 当处理巨大表格的时候建议使用 xlsxwriter,xlwt 生成的 xls 文件最多只能支持 65536 行数据, 而 xlsx 文件最大能够支持 1048576 行,16384 列数据
 
 '''
-1.目录  # 待解决
-2 将生成好的Excel插入Word  # 未解决
-3 表格样式更换  # 表头背景色待更新
+1.目录
+2.章节要分页  # 完成
+3.Excel样式 首行颜色突出 加边框 
+4.4.2取top3,表格拆分，
+5.第一个地图取消
+6.第一个Excel之后可以从rcount里获取数据，第二个excel只做sheet1
+7.行间距
+8 表格样式更换
 '''
+
+
 
 class scword():
     """
     功能：用于生成组内月报，这个对于周期性的文档报告很有意义
     author:aaa
     date:20200527
-    标准：大标题23 一级标题22 二级标题15 三级标题12 一般字体直接输出 行距1.5倍，段前5p，段后10p  中文:宋体 英文 Times New Roman
+    标准：大标题20 一级标题20 二级标题16 三级标题13 一般字体直接输出
     实现思路：三级架构，准备好每个一级目录下的二级目录和二级所对应的内容对象，然后统一按照结构循环输出
-    问题：1 Excel如何插入进来,2 目录如何生成
+    问题：1 页眉图片未插入，2 Excel如何插入进来
     """
     def __init__(self,ny):
         self.ny=ny
-        self.wdmc=r'../appendix/GT3-SJZY-YPT-云平台数据管理子项目-数据集成运维报告-{ny}.docx'.format(ny=ny)   # 要求必须传入文档名称
-
-    def moveoldfile(self):
-        '''用于移动历史附件到old中，方便处理本次数据'''
-        curdir=os.path.abspath("../appendix")  # 附件目录
-        tardir=os.path.join(curdir,'old')     # 目标目录
-        # 如果目标目录不存在进行创建
-        if not os.path.exists(tardir):
-            os.makedirs(tardir)
-        # 获取目录中的文件进行移动
-        curpath_files=os.listdir(curdir)
-        for filename in curpath_files:
-            fullpath=os.path.join(curdir,filename)
-            if os.path.isdir(fullpath):
-                print("正在移动：",fullpath)
-                shutil.move(fullpath,tardir)
-
-        print("目录处理完毕")
-
-
+        self.wdmc=r'..\appendix\GT3-SJZY-YPT-云平台数据管理子项目-数据集成运维报告-{ny}.docx'.format(ny=ny)   # 要求必须传入文档名称
 
     doc = Document()  # 生成一个word对象
+    # 设置一个空白样式
+    style = doc.styles['Normal']
+    # 设置西文字体
+    style.font.name = 'Times New Roman'
+    # 设置中文字体,设置了宋体之后好像有一点个别字体的奇怪加粗或者是混乱
+    style.element.rPr.rFonts.set(qn('w:eastAsia'), '微软雅黑')
     # 设置pyecharts读取的路径
     js_path=r"../js/"
     CurrentConfig.ONLINE_HOST=js_path
 
     def scword(self):
         '''生成文档'''
-
-        # 处理附件目录
-        self.moveoldfile()
         # 文档对象因为内容中也要获取，所以增加到公共部分
         # doc = Document()  # 生成一个word对象
         # # 设置字体样式
@@ -81,12 +73,6 @@ class scword():
         # doc.styles['Normal'].element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')  # 这句话感觉完全不懂
         # 公共部分
         doc=self.doc
-        # 设置一个空白样式
-        style = doc.styles['Normal']
-        # 设置西文字体
-        style.font.name = u'Times New Roman'
-        # 设置中文字体,设置了宋体之后好像有一点个别字体的奇怪加粗或者是混乱
-        style.element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
         nf=int(self.ny[:4])
         yf=int(self.ny[-2:])
         start, end = calendar.monthrange(nf,yf)
@@ -95,13 +81,12 @@ class scword():
         # 添加页眉页脚
         header=doc.sections[0].header
         ymdl=header.paragraphs[0]
-        run=ymdl.add_run()
-        run.add_picture(r'../img/img_ym01.png',width=Cm(2.7))
-        run.add_picture(r'../img/img_ym02.png',width=Cm(1.3))
-        run.add_text('\t金税三期工程第二阶段总局数据资源建设项目云平台数据管理子项目\n')
-        font=run.font
-        font.size=Pt(10.5)
-        run.underline=True
+        # 页眉增加图片还是待完善
+        # doc.add_picture(r'../img/img_ym01.png')
+        # doc.add_picture(r'../img/img_ym02.png')
+        # header.add_picture(r'./img/img_ym01.png')
+        # ymdl.add_picture(r'./img/img_ym02.png')
+        ymdl.text='金税三期工程第二阶段总局数据资源建设项目云平台数据管理子项目'
         ymdl.style=doc.styles["Header"]
         ymgs=ymdl.paragraph_format
         ymgs.alignment=WD_PARAGRAPH_ALIGNMENT.CENTER
@@ -114,11 +99,9 @@ class scword():
         # 添加run对象，参数为text=None和style=None,
         # run对象有bold（加粗）和italic（斜体）这两个属性
         dbt.bold=True
-        dbt.font.name=u'宋体'
-        dbt._element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
         # 字体对象
         btzt = dbt.font
-        btzt.size=Pt(23)  # 设置标题字体大小
+        btzt.size=Pt(20)  # 设置标题字体大小
         # btzt.bold=True
         btzt.color.rgb = RGBColor(0, 0, 0)
         # btzt.size=Inches(1)  也是设置字体大小，英寸
@@ -238,12 +221,9 @@ class scword():
             dldl = doc.add_heading(level=1)  # 添加标题
             pf=dldl.paragraph_format
             pf.alignment=WD_PARAGRAPH_ALIGNMENT.CENTER
-            run=dldl.add_run(dl[:dl.rindex("\t")])
-            run.font.name = u'宋体'
-            run._element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
-            dlbtzt=run.font
+            dlbtzt=dldl.add_run(dl[:dl.rindex("\t")]).font
             # dlbtzt.bold = True
-            dlbtzt.size = Pt(22)
+            dlbtzt.size = Pt(20)
             # 设置颜色，这两种都可以
             dlbtzt.color.rgb=RGBColor(0,0,0) # WD_COLOR_INDEX.AUTO
             # dlbtzt.color.theme_color=WD_COLOR_INDEX.BLACK
@@ -255,48 +235,31 @@ class scword():
                 pf3 = dl3.paragraph_format
                 pf3.first_line_indent = Inches(0.3)
                 doc.add_picture(r"..\img\img_dl3.png",width=Inches(6.25))
-
-                # 设置段落格式
-                pf3.space_before=Pt(5)  # 设置段前距
-                pf3.space_after=Pt(10)  # 设置段后距
-                pf3.line_spacing=Pt(20) # 行距包含字体的高度
             elif dl[:dl.index("\t")]=="第6章":
                 break
 
             if dl[:dl.index("\t")]=="第2章":
                 # 处理大标题直属内容
                 doc.add_paragraph("\n")
-                doc.add_picture(r"..\img\img_dl2.bmp",width=Inches(6.25))  # 这个数字还必须制定，这个值就是刚好可以满足全部宽度
+                doc.add_picture(r"..\img\img_dl2.jpg",width=Inches(6.25))  # 这个数字还必须制定，这个值就是刚好可以满足全部宽度
                 doc.add_paragraph("\n")
                 dl2=doc.add_paragraph(nr2)
                 pf2 = dl2.paragraph_format
                 pf2.first_line_indent = Inches(0.3)
-                # 设置段落格式
-                pf2.space_before = Pt(5)  # 设置段前距
-                pf2.space_after = Pt(10)  # 设置段后距
-                pf2.line_spacing = Pt(20)  # 行距包含字体的高度
                 # 处理下级循环内容
                 for ej in ml.get(dl):
                     # for ejbt in ej.keys():
                     #     # print("第二级标题",ejbt)
                     p2 = doc.add_heading(level=2)
                     p2ejbt=p2.add_run(ej.keys())  # 直接输出
-                    p2ejbt.font.name = u'宋体'
-                    p2ejbt._element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
                     p2ejzt=p2ejbt.font
-                    p2ejzt.size=Pt(15)
-                    # 设置段落格式
-                    p2ejbt.space_before = Pt(5)  # 设置段前距
-                    p2ejbt.space_after = Pt(10)  # 设置段后距
-                    p2ejbt.line_spacing = Pt(20)  # 行距包含字体的高度
+                    p2ejzt.size=Pt(16)
                     # p2ejzt.bold=True
                     p2ejzt.color.rgb=RGBColor(10,10,10)
                     for ejz in ej.values():
                         for sj in ejz:
                             p23 = doc.add_heading(level=3)
                             p23bt=p23.add_run(sj.keys())  # 直接输出
-                            p23bt.font.name = u'宋体'
-                            p23bt._element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
                             p23zt = p23bt.font
                             p23zt.size = Pt(13)
                             # p23zt.bold = True
@@ -306,15 +269,11 @@ class scword():
                             paragraph_format = paragraph.paragraph_format
                             paragraph_format.first_line_indent = Inches(0.3)
 
-
                 # 第二章最后增加总结的一段话
                 paragraph = doc.add_paragraph(zj_2)
                 paragraph_format = paragraph.paragraph_format
                 paragraph_format.first_line_indent = Inches(0.3)
-                # 设置段落格式
-                paragraph_format.space_before = Pt(5)  # 设置段前距
-                paragraph_format.space_after = Pt(10)  # 设置段后距
-                paragraph_format.line_spacing = Pt(20)  # 行距包含字体的高度
+
 
             else:
                 # 处理除了第二章之外的规律结构
@@ -328,11 +287,9 @@ class scword():
                         # xlbtzt.bold = True
                         xldl=doc.add_heading(level=2)  # 添加标题
                         xlbt=xldl.add_run(ej[:ej.rindex("\t")])
-                        xlbt.font.name = u'宋体'
-                        xlbt._element.rPr.rFonts.set(qn('w:eastAsia'), u'宋体')
                         xlbtzt=xlbt.font
                         # xlbtzt.bold=True
-                        xlbtzt.size=Pt(15)
+                        xlbtzt.size=Pt(16)
                         xlbtzt.color.rgb=RGBColor(0,0,0)
 
                         # 获取到每一个二级下面的内容
@@ -342,14 +299,10 @@ class scword():
                             paragraph=doc.add_paragraph(nr)
                             paragraph_format=paragraph.paragraph_format
                             paragraph_format.first_line_indent=Inches(0.3)
-                            # 设置段落格式
-                            paragraph_format.space_before = Pt(5)  # 设置段前距
-                            paragraph_format.space_after = Pt(10)  # 设置段后距
-                            paragraph_format.line_spacing = Pt(20)  # 行距包含字体的高度
 
                             # ############### 处理有图表的特殊部分 ################
                             sql_dx=getsqldata()
-                            from snapshot_selenium import snapshot
+
                             if ej=="3.2\t分发库运行情况\t\t" and num==1:
                                 # print(sql.get_b32_ycjc())
                                 data = getsqldata.getdata(sql_dx,sql.get_b32_ycjc())
@@ -375,7 +328,7 @@ class scword():
                                     row_cells[1].text = str(ycjcs)  # 不转为字符串不认识
                                     row_cells[2].text = ycjcdw
                                     # print("{rq}>>>{jcs}>>>{ycdw}".format(rq=rq, jcs=ycjcs, ycdw=ycjcdw))
-                                    day.append(int(rq[-2:]))
+                                    day.append(int(rq))
                                     ycs.append(ycjcs)
                                     if ycjcdw:  # 过滤掉为空的
                                         dw.add(ycjcdw)
@@ -384,64 +337,40 @@ class scword():
                                 bt = "图3.2.1 {ny}分日分发库异常进程情况统计图".format(ny=self.ny)
                                 # l321 = Line()
                                 # l321.add_xaxis(day).add_yaxis("异常数", ycs).set_global_opts(title_opts=opts.TitleOpts(title=bt))
-                                # l321 = Line(init_opts=opts.InitOpts(width="800px", height="400px"))
-                                # (
-                                #
-                                #     l321.add_xaxis(xaxis_data=day)
-                                #         .add_yaxis(
-                                #         series_name="",
-                                #         y_axis=ycs,
-                                #         markpoint_opts=opts.MarkPointOpts(
-                                #             data=[
-                                #                 opts.MarkPointItem(type_="max", name="最大值"),
-                                #                 opts.MarkPointItem(type_="min", name="最小值"),
-                                #             ]
-                                #         ),
-                                #         markline_opts=opts.MarkLineOpts(
-                                #             data=[opts.MarkLineItem(type_="average", name="平均值")]
-                                #         ),
-                                #     )
-                                #         .set_global_opts(
-                                #         title_opts=opts.TitleOpts(title=bt, subtitle=self.ny)
-                                #     )
-                                # )
-                                # 不知道折线图为什么显示不出来线条，所以切换柱状图
-                                bar321=Bar()
+                                l321 = Line(init_opts=opts.InitOpts(width="800px", height="400px"))
                                 (
-                                    bar321.add_xaxis(day)
-                                    .add_yaxis("异常数", ycs, color="#6495ED")
-                                    # bar321.reversal_axis()  # 不需要反转
-                                    .set_global_opts(
-                                        title_opts=opts.TitleOpts(title="分发库异常-分日期"),
-                                        # datazoom_opts=[opts.DataZoomOpts(),opts.DataZoomOpts(type_="inside")],
-                                        xaxis_opts=opts.AxisOpts(name='(x当前月每天)'),
-                                        yaxis_opts=opts.AxisOpts(name='(y异常次数)')
+
+                                    l321.add_xaxis(xaxis_data=day)
+                                        .add_yaxis(
+                                        series_name="",
+                                        y_axis=ycs,
+                                        markpoint_opts=opts.MarkPointOpts(
+                                            data=[
+                                                opts.MarkPointItem(type_="max", name="最大值"),
+                                                opts.MarkPointItem(type_="min", name="最小值"),
+                                            ]
+                                        ),
+                                        markline_opts=opts.MarkLineOpts(
+                                            data=[opts.MarkLineItem(type_="average", name="平均值")]
+                                        ),
                                     )
-                                    .set_series_opts(
-                                        label_opts=opts.LabelOpts(position="top"),  # 设置柱头上的数据提示
-                                        # markline_opts=opts.MarkLineOpts(data=opts.MarkLineItem(y=50,))  标准线不需要
+                                        .set_global_opts(
+                                        title_opts=opts.TitleOpts(title=bt, subtitle=self.ny)
                                     )
                                 )
-                                make_snapshot(snapshot, bar321.render(), r"..\img\img_nr3201_ffkyc_frq.png")
+                                make_snapshot(snapshot,l321.render(), r"..\img\img_nr3201_ffkyc_frq.png")
                                 self.doc.add_picture(r"..\img\img_nr3201_ffkyc_frq.png",width=Inches(6.25),height=Inches(4))
 
                                 # 添加总结概括的一段
                                 data=getsqldata.getdata(sql_dx,sql.get_zj32_ffkyc_frq())
                                 # print(data)
-                                if len(data)>0:
-                                    str_yc = "其中失败任务依次是:"
-                                    for mx in data:
-                                        str_yc += reduce(lambda a, b: "{a}有{b}次异常，".format(a=a, b=b), mx)
-                                else:
-                                    str_yc=""
-                                temp_nr = "分日期统计可以看出{yf}月份从1号到{end}号每天的任务运行失败情况，{str_yc}{yf}月共有{wycts}天没有失败的任务。".format(yf=yf,end=end,str_yc=str_yc,wycts=end - len(data))
+                                str_yc=""
+                                for mx in data:
+                                    str_yc += reduce(lambda a, b: "{a}有{b}次异常".format(a=a, b=b), mx)
+                                temp_nr = "分日期统计可以看出{yf}月份从1号到{end}号每天的任务运行失败情况，其中失败任务依次是:{str_yc}。{yf}月共有{wycts}天没有失败的任务。".format(yf=yf,end=end,str_yc=str_yc,wycts=end-len(data))
                                 p = self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                                 # 图2 任务分单位异常情况
                                 data = getsqldata.getdata(sql_dx,sql.get_b32_ffkyc_fdw())
@@ -464,7 +393,7 @@ class scword():
                                     visualmap_opts=opts.VisualMapOpts(is_piecewise=True, max_=max(dd.values()))
                                     # 是否分段,以及分段的最大值
                                 )
-                                from snapshot_selenium import snapshot
+
                                 make_snapshot(snapshot, m1.render(), r'..\img\img_nr32_ffkycdw.png')
                                 self.doc.add_picture(r'..\img\img_nr32_ffkycdw.png', width=Inches(6.25))
 
@@ -474,20 +403,13 @@ class scword():
                                 # reduce(function, sequence[, initial] ) -> value
                                 # function参数是一个有两个参数的函数，reduce依次从sequence中取一个元素，和上一次调用function的结果做参数再次调用function。
                                 # 第一次调用function时，如果提供initial参数，会以sequence中的第一个元素和initial作为参数调用function，否则会以序列sequence中的前两个元素做参数调用function。
-                                str_yc="分别是："
-                                if len(data)>0:
-                                    for mx in data:
-                                        str_yc+=reduce(lambda a,b:"{a}{b}次异常，".format(a=a,b=b),mx)
-                                else:
-                                    str_yc=""
-                                temp_nr="如上图所示，{ny}整月分发库OGG链路进程共出现{yczs}次异常，{str_yc}共涉及{dws}家单位。".format(ny=self.ny,yczs=yczs,dws=dws,str_yc=str_yc)
+                                str_yc=""
+                                for mx in data:
+                                    str_yc+=reduce(lambda a,b:"{a}{b}次异常".format(a=a,b=b),mx)
+                                temp_nr="如上图所示，{ny}整月分发库OGG链路进程共出现{yczs}次异常，共涉及{dws}家单位，分别是：{str_yc}。".format(ny=self.ny,yczs=yczs,dws=dws,str_yc=str_yc)
                                 p=self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                             # 3.3 ############################################
                             if ej == "3.3\t分发库异常分析\t\t" and num == 1:
@@ -496,7 +418,7 @@ class scword():
                                 table = doc.add_table(rows=3, cols=3, style=table_style)
                                 table.alignment=WD_TABLE_ALIGNMENT.CENTER  # 设置表格居中
                                 # 注意：表的所有列宽度合计为10，所以在设置表格每列宽宽度时要同时设置所有列宽，并且合计为10。如果只设置某一列宽，那么其余列将平分剩余宽度。如果只设置某几列宽，将不起作用。
-                                table.cell(0,1).width=Inches(5.6)
+                                table.cell(0,1).width=Inches(5.4)
                                 hdr_cells = table.rows[0].cells
                                 hdr_cells[0].text = "序号"
                                 hdr_cells[1].text = "OGG进程异常原因"
@@ -527,10 +449,6 @@ class scword():
                                 p = self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
                                 # 首行缩进0.74厘米，即2个字符上面那个英寸还真不好掌控
                                 # paragraph_format.first_line_indent = Cm(0.74)
 
@@ -604,20 +522,12 @@ class scword():
                                 p=self.doc.add_paragraph(temp_nr)
                                 pf=p.paragraph_format
                                 pf.first_line_indent=Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                                 temp_list1=dict1.get("数据推送同步")[:-1]
                                 temp_nr = "2、云平台向外部推送及同步的数据有：" + ",".join(temp_list1)
                                 p = self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent=Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                             # 4.2 ############################################
                             if ej == "4.2\t数据集成任务情况\t\t" and num == 1:
@@ -625,93 +535,21 @@ class scword():
                                 data=getsqldata.getdata(sql_dx,sql.get_zj421_xzrwqk())
                                 # print(data)
                                 rwzs,dcrws,bsl=data[0]
-                                temp_nr="从{yf}月1号到{yf}月{end}号总共新增了{rwzs}个任务（基础层新增{bsl}张表，部署任务{dcrws}个；镜像层新增{bsl}张表，部署任务{dcrws}个任务）。".format(yf=yf,start=start,end=end,rwzs=rwzs,dcrws=dcrws,bsl=bsl)
+                                temp_nr="从{yf}月{start}号到{yf}月1号总共新增了{rwzs}个任务（基础层新增{bsl}张表，部署任务{dcrws}个；镜像层新增{bsl}张表，部署任务{dcrws}个任务）。".format(yf=yf,start=start,end=end,rwzs=rwzs,dcrws=dcrws,bsl=bsl)
                                 p=self.doc.add_paragraph(temp_nr)
                                 pf=p.paragraph_format
                                 pf.first_line_indent=Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
-                                # 任务异常分时间占比
+                                # 按时间总结的一段话
                                 data = getsqldata.getdata(sql_dx,sql.get_zj422_rwyc_frq())
-                                # p4202 = Pie()
-                                # c = (
-                                #
-                                #     p4301.add(
-                                #         "",
-                                #         [list(z) for z in data],
-                                #         center=["50%", "50%"],  # 圆心的横竖坐标位置
-                                #     )
-                                #         .set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c}"))
-                                #     # .render("pie_position.html")
-                                # )
-                                # 添加折线图
-                                bt = "图4.2.1 {ny}分日任务异常进程情况统计图".format(ny=self.ny)
-                                day=[]
-                                ycs=[]
+                                str_yc = ""
                                 for mx in data:
-                                    day.append(mx[0][-2:])
-                                    ycs.append(mx[1])
-                                # l421 = Line()
-                                # (
-                                #     l421.add_xaxis(day)
-                                #         .add_yaxis(
-                                #             series_name="异常数",
-                                #             y_axis=ycs,
-                                #             linestyle_opts=opts.LineStyleOpts(color="green", width=4)
-                                #         )
-                                #         .set_global_opts(title_opts=opts.TitleOpts(title=bt))
-                                #
-                                # )
-
-                                l421 = Line(init_opts=opts.InitOpts(width="800px", height="400px"))
-                                (
-
-                                    l421.add_xaxis(xaxis_data=day)
-                                        .add_yaxis(
-                                        series_name="",
-                                        y_axis=ycs,
-                                        linestyle_opts=opts.LineStyleOpts(color="green",width=4),
-                                        markpoint_opts=opts.MarkPointOpts(
-                                            data=[
-                                                opts.MarkPointItem(type_="max", name="最大值"),
-                                                opts.MarkPointItem(type_="min", name="最小值"),
-                                            ]
-                                        ),
-                                        markline_opts=opts.MarkLineOpts(
-                                            data=[opts.MarkLineItem(type_="average", name="平均值")]
-                                        ),
-                                    )
-                                        .set_global_opts(
-                                        title_opts=opts.TitleOpts(title=bt, subtitle=self.ny),
-                                        xaxis_opts=opts.AxisOpts(name='(当月日期)'),
-                                        yaxis_opts=opts.AxisOpts(name='（异常次数）')
-                                    )
-                                )
-
-                                make_snapshot(snapshot, l421.render(), r"..\img\img_nr4201_rwyc_frq.png")
-                                self.doc.add_picture(r"..\img\img_nr4201_rwyc_frq.png", width=Inches(6.25))
-
-                                # 总结的一段话
-                                data=getsqldata.getdata(sql_dx,sql.get_zj4203_rwyc_frq())
-                                str_yc = "其中失败任务数排在前三位依次是:"
-                                if len(data)>0:
-                                    for mx in data[:3]:
-                                        str_yc += reduce(
-                                            lambda a, b: "{yf}月{a}号有{b}次异常，".format(yf=yf, a=int(a[-2:]), b=b), mx)
-                                else:
-                                    str_yc=""
-                                temp_nr = "分日期统计可以看出{yf}月份从1号到{end}号每天的任务运行失败情况，{str_yc}{yf}月共有{wycts}天没有失败的任务。".format(
+                                    str_yc += reduce(lambda a, b: "{yf}月{a}号有{b}次异常".format(yf=yf,a=int(a[-2:]), b=b), mx)
+                                temp_nr = "分日期统计可以看出{yf}月份从1号到{end}号每天的任务运行失败情况，其中失败任务依次是:{str_yc}。{yf}月共有{wycts}天没有失败的任务。".format(
                                     yf=yf, end=end, str_yc=str_yc, wycts=end - len(data))
                                 p = self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                                 p=doc.add_paragraph("{nf}年{yf}月任务分单位异常情况：".format(nf=nf,yf=yf))
                                 pf=p.paragraph_format
@@ -719,8 +557,8 @@ class scword():
 
                                 # 任务分单位异常情况
                                 data = getsqldata.getdata(sql_dx,sql.get_b42_rwyc_fdw())
-                                dd = defaultdict(lambda: 0)  # 全部装填给表格使用
-                                data_map = [] # 在装填一个数据大于0的给地图
+                                dd = defaultdict(lambda: 0)
+
                                 temp_nr=""
                                 # 生成表格，因为地图也表示不全
                                 table = doc.add_table(rows=1, cols=4, style=table_style)
@@ -733,13 +571,9 @@ class scword():
                                 hdr_cells[3].text="异常次数"
                                 # 处理地图需要的数据以及增加表格其他列
                                 temp_num=0
-                                dd_map=defaultdict(lambda :0)
                                 for mx in data:
                                     temp_num+=1
                                     dd[mx[0]] = mx[1]
-                                    if mx[1]>0:
-                                        data_map.append(mx)
-                                        dd_map[mx[0]]=mx[1]
                                     row_cells=table.add_row().cells
                                     row_cells[0].text=str(temp_num)
                                     row_cells[1].text = self.ny
@@ -748,10 +582,9 @@ class scword():
 
                                 self.doc.add_paragraph("\n按地图显示如下：")
 
-
                                 # 地图部分
                                 m1 = Map()
-                                m1.add(series_name="异常情况", data_pair=data_map, maptype="china",
+                                m1.add(series_name="异常情况", data_pair=data, maptype="china",
                                        name_map={"key": "value"},
                                        is_map_symbol_show=True)
                                 m1.set_global_opts(
@@ -762,35 +595,38 @@ class scword():
                                 )
 
                                 # m1.render("temp.html")
+                                # make_snapshot(snapshot,file_name=r'temp.html',output_name=r'..\img\img_nr32_ycfdw.png')
 
+                                # from snapshot_selenium import snapshot
+                                # 想要使用他必须安装驱动，谷歌浏览器驱动的下载网址http://chromedriver.storage.googleapis.com/index.html
+                                # 只需要把它放到下面两个路径下即可!
+                                # 还有一个就是在你python安装的目录下,
+                                #  一个谷歌浏览器的位置,具体的位置:C:\Program Files (x86)\Google\Chrome\Application
                                 make_snapshot(snapshot, m1.render(), r'..\img\img_nr42_rwycfdw.png')
 
                                 self.doc.add_picture(r'..\img\img_nr42_rwycfdw.png', width=Inches(6.25))
 
-                                yczs = sum(dd_map.values())
-                                dws = len(data_map)
-                                str_dw = reduce(lambda a, b: "{a},{b}".format(a=a, b=b), dd_map.keys())
+                                yczs = sum(dd.values())
+                                dws = len(dd.keys())
+                                str_dw = reduce(lambda a, b: "{a},{b}".format(a=a, b=b), dd.keys())
                                 temp_nr = "如上图所示，{ny}整月集成问题共出现{yczs}次，共涉及{dws}家单位，分别是：{str_dw}。".format(
                                     ny=self.ny, yczs=yczs, dws=dws, str_dw=str_dw)
                                 p = self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                             # 4.3 ############################################
                             if ej == "4.3\t运行失败任务分析\t\t" and num == 1:
 
                                 # 饼图 任务异常原因分析
                                 data=getsqldata.getdata(sql_dx,sql.get_b43_rwyc_fyy())
-                                # print(sql.get_b43_rwyc_fyy())
                                 yccs=[]
                                 ycyy=[]
+                                explode=[]
                                 for mx in data:
                                     yccs.append(mx[1])
                                     ycyy.append(mx[0])
+                                    explode.append(0)
                                 # 如果需要的情况增加上其他
                                 if int(yczs)-sum(yccs)>0:
                                     yccs.append()
@@ -807,7 +643,7 @@ class scword():
                                 pf.alignment = WD_PARAGRAPH_ALIGNMENT.CENTER
                                 # 如果有数据增加异常原因饼图
                                 if len(yccs)>0:
-                                    # explode[0] = 0.1  # 改变自己需要的分离缝隙  各个值所属模块突出来的缝隙大小
+                                    explode[0] = 0.1  # 改变自己需要的分离缝隙  各个值所属模块突出来的缝隙大小
 
                                     # fig1, ax1 = plt.subplots()
                                     # ax1.pie(yccs, explode=explode, labels=ycyy, autopct='%1.2f%%',
@@ -815,53 +651,50 @@ class scword():
                                     # ax1.axis('equal')  # Equal aspect ratio ensures that pie is drawn as a circle.
                                     # plt.savefig(r"..\img\img_nr4301_rwyc_fyy.png")
                                     # # plt.show()
-                                    p4301 = Pie()
+                                    p4301=Pie()
                                     c = (
 
-                                        p4301.add(
+                                            p4301.add(
                                             "",
                                             [list(z) for z in zip(ycyy, yccs)],
                                             center=["50%", "50%"],  # 圆心的横竖坐标位置
                                         )
                                             .set_global_opts(
-                                            # title_opts=opts.TitleOpts(title="任务异常-分原因"),
-                                            legend_opts=opts.LegendOpts(pos_left="5%"),
+                                            title_opts=opts.TitleOpts(title="任务异常-分原因"),
+                                            legend_opts=opts.LegendOpts(pos_left="15%"),
                                         )
                                             .set_series_opts(label_opts=opts.LabelOpts(formatter="{b}: {c}"))
-                                        # .render("pie_position.html")
+                                            # .render("pie_position.html")
                                     )
-                                    make_snapshot(snapshot, p4301.render(), r"..\img\img_nr4301_rwyc_fyy.png")
+                                    make_snapshot(snapshot,p4301.render(),r"..\img\img_nr4301_rwyc_fyy.png")
                                     self.doc.add_picture(r"..\img\img_nr4301_rwyc_fyy.png", width=Inches(6.25))
 
                                 # 添加总结概括的一段
                                 str_yc=reduce(lambda a,b:"{a},{b}".format(a=a,b=b),ycyy)
-                                temp_nr = "如上图所示，{yf}月集成问题共出现{yczs}次，错误率比较高的是：{str_yc}。导致失败的原因主要有三大类，一是分发库问题，主要是连接异常，版本不一致，脏数据（最大比重的就是脏数据问题）；二个是云平台问题，主要是实例调度问题、任务卡住、资源不足导致任务失败的问题。从统计数量来看脏数据问题导致的失败任务是最多的，这个问题需要各地运维人员严格按照规范来操作，也是后期需要解决的问题。".format(
+                                temp_nr = "如上图所示，{yf}月集成问题共出现{yczs}次，错误率比较高的是：{str_yc}。导致失败的原因主要有三大类，一是分发库问题，主要是连接异常，版本不一致，脏数据（最大比重的就是脏数据问题）；二个是云平台问题，主要是实例调度问题、任务卡住、资源不足导致任务失败的问题。三个是端口转发（FRP）不稳定导致的任务出现夯住情况，这种需要运维人员介入手动处理。从统计数量来看脏数据问题导致的失败任务是最多的，这个问题需要各地运维人员严格按照规范来操作，也是后期需要解决的问题。".format(
                                     yf=yf, yczs=yczs, str_yc=str_yc)
                                 p = self.doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                             # 4.4 ############################################
                             if ej == "4.4\t失败任务应对策略\t\t" and num == 1:
                                 data=getsqldata.getdata(sql_dx,sql.get_b44_sbrwydcl())
                                 # print(data)
                                 table=doc.add_table(rows=1,cols=3,style=table_style)
+                                table.cell(0, 0).width = Cm(2)
                                 hdr_cells=table.rows[0].cells
                                 hdr_cells[0].text="序号"
                                 hdr_cells[1].text="失败类别"
                                 hdr_cells[2].text="解决方法"
-                                hdr_cells[0].width = Cm(2)
-                                hdr_cells[1].width = Cm(10)
-                                hdr_cells[2].width = Cm(10)
                                 for mx in data:
                                     row_cells=table.add_row().cells
                                     row_cells[0].text=str(int(mx[0]))
                                     row_cells[1].text=mx[1]
                                     row_cells[2].text=mx[2]
+
+                                # table.autofit=True
+                                # hdr_cells[0].width = Inches(0.5)
 
 
                             # 4.5 生成数据一致性Excel
@@ -872,23 +705,14 @@ class scword():
                                     p = self.doc.add_paragraph(temp_nr)
                                     pf = p.paragraph_format
                                     pf.first_line_indent = Inches(0.3)
-                                    # 设置段落格式
-                                    pf.space_before = Pt(5)  # 设置段前距
-                                    pf.space_after = Pt(10)  # 设置段后距
-                                    pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
                                     list_tablename=['HX_DJ_DJ_NSRXX','HX_DJ_DJ_NSRXX_KZ','HX_RD_RD_SFZRDXXB','HX_SB_SB_SBXX','HX_ZS_ZS_YJSF']
-                                    workbook=xlsxwriter.Workbook(r"../appendix/{ny}数据抽样比对结果.xlsx".format(ny=self.ny))
+                                    workbook=xlsxwriter.Workbook(r"..\appendix\{ny}数据抽样比对结果.xlsx".format(ny=self.ny))
                                     for tablename in list_tablename:
                                         worksheet=workbook.add_worksheet(tablename)
                                         # 声明一个加粗的样式用来增加给表头，颜色是16进制数
-                                        bt = workbook.add_format(
-                                            {'bold': True, 'bg_color': '9BC2E6', 'align': 'centre', 'valign': 'vcentre',
-                                             'border': 1})
-                                        nr = workbook.add_format(
-                                            {'align': 'centre', 'valign': 'vcentre',
-                                             'border': 1})
-                                        # czjz=workbook.add_format({'align':'vcenter'})
+                                        bt = workbook.add_format({'bold': True,'bg_color':'9BC2E6','align':'centre','valign':'vcenter','border':1})
+                                        nr = workbook.add_format({'align':'centre','valign':'vcenter','border':1})
                                         worksheet.merge_range(first_row=0,last_row=1,first_col=0,last_col=0,data="单位",cell_format=bt)
                                         worksheet.merge_range(first_row=0,last_row=0,first_col=1,last_col=4,data="{nf}年{yf}月24日".format(nf=nf,yf=yf),cell_format=bt)
                                         worksheet.merge_range(first_row=0, last_row=0, first_col=5, last_col=8,data="{nf}年{yf}月25日".format(nf=nf,yf=yf),cell_format=bt)
@@ -925,22 +749,20 @@ class scword():
                                     # 将生成好的Excel附加进来
                                 elif num ==3:
                                     # 生成 4.5 excel 2 数据差异运维记录
-                                    workbook=xlsxwriter.Workbook("../appendix/{ny}数据差异运维记录.xlsx".format(ny=self.ny))
+                                    workbook=xlsxwriter.Workbook(r"..\appendix\{ny}数据差异运维记录.xlsx".format(ny=self.ny))
                                     worksheet=workbook.add_worksheet("运维记录")
                                     # 声明一个加粗的样式用来增加给表头，颜色是16进制数
-                                    bt = workbook.add_format({'bold': True, 'bg_color': '9BC2E6', 'align': 'centre','valign':'vcentre','border':1})
-                                    nr = workbook.add_format(
-                                        { 'align': 'centre', 'valign': 'vcentre',
-                                         'border': 1})
+                                    bt = workbook.add_format({
+                                        'bold': True, 'bg_color': '0197F5','align': 'centre', 'valign': 'vcenter',
+                                        'border': 1
+                                         })
+                                    nr = workbook.add_format({'align': 'centre', 'valign': 'vcenter',
+                                        'border': 1})
                                     worksheet.write(0,0,"项目名称",bt)
                                     worksheet.write(0, 1, "业务日期", bt)
                                     worksheet.write(0, 2, "异常任务名称", bt)
                                     worksheet.write(0, 3, "问题类型", bt)
                                     worksheet.write(0, 4, "解决方案", bt)
-
-                                    # 设置列宽
-                                    worksheet.set_column(0,1,20)
-                                    worksheet.set_column(2,4,40)
 
                                     data=getsqldata.getdata(sql_dx,sql.get_b45_sjcyyw())
                                     for row_num in range(len(data)):
@@ -960,7 +782,6 @@ class scword():
                                 hdr_cells = table.rows[0].cells
                                 hdr_cells[0].text = "月份"
                                 hdr_cells[1].text = "数据来源"
-                                hdr_cells[1].width=Cm(6)
                                 hdr_cells[2].text = '总量'
                                 hdr_cells[3].text = "有更新表数量"
                                 hdr_cells[4].text = "未更新表数量"
@@ -988,22 +809,18 @@ class scword():
 
                                 doc.add_paragraph("\n")
 
-                                temp_nr = "目前云平台基础层配置调度任务的数据源共有{lys}个，包含日调度、周调度、月调度三种更新频率，共计{zbs}张表。根据本月监控源端数据变化情况统计，其中按调度更新的表有{gxs}张，未更新的表有{wgxs}张。各源端系统详细情况如上表所示:" .format(
-                                    lys=len(temp_list1), zbs=len(temp_list2), gxs=len(temp_list3),wgxs=len(temp_list4))
+                                temp_nr = "目前（{yf}）云平台基础层配置调度任务的数据源共有{lys}个，包含日调度、周调度、月调度三种更新频率，共计{zbs}张表。根据本月监控源端数据变化情况统计，其中按调度更新的表有{gxs}张，未更新的表有{wgxs}张。各源端系统详细情况如上表所示:".format(
+                                    yf=self.ny, lys=len(temp_list1), zbs=sum(temp_list2), gxs=sum(temp_list3),
+                                    wgxs=sum(temp_list4))
                                 p = doc.add_paragraph(temp_nr)
                                 pf = p.paragraph_format
                                 pf.first_line_indent = Inches(0.3)
-                                # 设置段落格式
-                                pf.space_before = Pt(5)  # 设置段前距
-                                pf.space_after = Pt(10)  # 设置段后距
-                                pf.line_spacing = Pt(20)  # 行距包含字体的高度
 
-            doc.add_page_break()  # 每一章完成后换页
+            doc.add_page_break()
         doc.save(self.wdmc)
 
 if __name__ == '__main__':
-    starttime=time.time()
-    ny='202009'
-    scword(ny).scword()
-    print("生成完毕,消耗时间：",time.time()-starttime)
+    print("开始时间",time.time())
+    scword("202006").scword()
+    print("结束时间",time.time())
 

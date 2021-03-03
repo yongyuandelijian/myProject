@@ -130,15 +130,12 @@ class get_ybwb(object):
         nr52_03="（2）平台原因导致的异常，例如实例调度失败、IO异常、安全策略不通等，有问题再联系阿里解决后再重跑即可。"
         ej52 = {ej52: [nr52_01, nr52_02,nr52_03]}
         ejt5 = (ej51, ej52)
-        yj6="第6章\t附件\t\t"
-        ejt6=()
         ml = {
             yj1: ejt1,
             yj2: ejt2,
             yj3: ejt3,
             yj4: ejt4,
-            yj5: ejt5,
-            yj6: ejt6
+            yj5: ejt5
         }
 
         return ml,nr2,nr3,zj_2

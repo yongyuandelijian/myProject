@@ -8,10 +8,10 @@ class getsqldata(object):
 
     def getdata(self,sql):
         '''功能：根据传入的sql获取到数据，然后将数据返回'''
-        path = r"E:\work\config\sqlconfig.ini"
-        host,port,schema,user,password,charset=getsqlconfig.get_sqlconfig(path)
+        # path = r"E:\work\config\sqlconfig.ini" 这里面用不了，取消
+        # host,port,schema,user,password,charset=getsqlconfig.get_sqlconfig(path)
         # 打开数据库连接
-        db = pymysql.connect(host=host, user=user, passwd=password, db=schema)
+        db = pymysql.connect(host="99.13.220.242", user="rcount", passwd="rcount", db="rcount")
 
         # 使用 cursor() 方法创建一个游标对象 cursor
         cursor = db.cursor()

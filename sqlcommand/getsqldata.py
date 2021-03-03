@@ -2,11 +2,11 @@
 # date:20200723
 # author:aaa
 import pymysql
-import getsqlconfig
+
 
 class getsqldata(object):
 
-    def getdata(self,sql):
+    def getdata(self, sql):
         '''功能：根据传入的sql获取到数据，然后将数据返回'''
         # path = r"E:\work\config\sqlconfig.ini" 这里面用不了，取消
         # host,port,schema,user,password,charset=getsqlconfig.get_sqlconfig(path)
@@ -22,12 +22,22 @@ class getsqldata(object):
         # 使用 fetchone() 方法获取单条数据.
         # data = cursor.fetchone()
 
-        data=cursor.fetchall()
+        data = cursor.fetchall()
         # for row in data:
         #     rq=row[0]
         #     jcs=row[1]
         #     ycdw=row[2]
-
+        # db.commit()  # 除了查询语句其他的看自己需求是否要提交
         # 关闭数据库连接
+        db.close()
+        return data
+
+    def getMetaData(self, sql):
+        '''功能：根据传入的sql获取到数据，然后将数据返回'''
+        db = pymysql.connect(host="99.13.222.50", user="systemdata", passwd="systemdata_0705", db="systemdata")
+        cursor = db.cursor()
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        # db.commit()  # 除了查询语句其他的看自己需求是否要提交
         db.close()
         return data

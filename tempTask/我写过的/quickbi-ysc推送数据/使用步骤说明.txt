@@ -1,0 +1,13 @@
+请注意看每个脚本上面的说明， 前提是表单的表要存在，查询sql的格式是：select 'SC_ZJ_GSZJ_2|ZJ_SWJG_DJ_XBDJHS_BY_HZ|本期新办登记户数汇总|qxjswjg_dm|sdhy' from dual;
+请正确维护表单，结果不要重命名，不要维护错！！！ 分别是：项目名称 表名称 表注释 分区键 表组 通过|分割，所以注释内不要加这个符号,表需要带项目名称
+
+第一步：# 用法：sh makesql.sh GSZJ_2 
+   功能：生成创建ads表的脚本   
+   说明：1 表单需要从odps表获取，tablist_sql获取到的结果格式是 ：SC_ZJ_GSZJ_2|ZJ_SWJG_DJ_XBDJHS_BY_HZ|本期新办登记户数汇总|qxjswjg_dm|sdhy 2 默认创建到表组sdhy
+第2步：# 用法：sh runsql.sh GSZJ_2 5  
+   功能：执行创建ads表的脚本 使用上一步生成的结果执行sql
+第3步：# 用法:sh makejson.sh 20200831 GSZJ_2 
+   功能：生成创建datax文件  # 参数说明：1 bizdate 业务日期 (20200831)  2 dwmc (GSZJ_2) 项目后缀 用来创建文件夹的时候使用 
+   表单需要从odps表获取，tablist_sql获取到的结果格式是 ：SC_ZJ_GSZJ_2|ZJ_SWJG_DJ_XBDJHS_BY_HZ|本期新办登记户数汇总|qxjswjg_dm|sdhy
+第4步：# 用法：sh runjson.sh 20200831 5 GSZJ_2 
+   功能: 运行上一步生成推送ads的json 参数说明： bizdate (20200831) num 5 并发数

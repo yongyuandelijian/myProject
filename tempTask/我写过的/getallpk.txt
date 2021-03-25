@@ -1,0 +1,156 @@
+﻿#!/bin/bash
+# 功能：从分发库获取指定单位表的全量主键到PRI表，这是处理大表脏数据的脚本
+# 参数：1 bizdate 日分区 2 dwmc 单位代码 3 基础层表名称 （ZJ_HCP_HCP_PJJG_YJ)
+# author：aaa
+# date: 20201120
+# 用法：nohup sh getallpk_20201120.sh 20201119 SXST ZJ_HCP_HCP_PJJG_YJ >20201119.log 2>&1 &
+#当前脚本只支持单主键情况，多主键情况需要更改mergen的主键比对关联逻辑。 EXPORT TABLE N_table ，改为PRI_TABLE
+
+###################################################################################################
+
+# 目录准备
+mydir=`pwd`
+# 传入参数
+bizdate=$1
+dwmc=$2
+jobname=$3
+colconf_jobname=$4
+
+# 如果参数个数不匹配则提示校验，防止带入造成较大问题
+if [ $# -ne 3 ];then echo "要求的参数个数是bizdate和dwmc以及表名共3个，当前提供的参数是$#个，分别是$*请检查核对！！！"; exit -1; fi;
+
+
+# 参数准备
+odpsServer="http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api"     #
+tunnelServer="http://dt.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn"            #
+odpsaccessId="yXKpKuN0xKF5MLpK"                                                #
+odpsaccessKey="1glCWzC8XkTT3BSpoY9NkYMibQslxB"   
+i=`whoami`
+if [ ${i} -eq 'admin' ]; then
+odpscmd="/home/admin/client/odps/bin/odpscmd --endpoint=${odpsServer} -u ${odpsaccessId} -p ${odpsaccessKey}"
+datax_py='/home/admin/datax3/bin/datax.py'
+else
+odpscmd="/home/zr_user/odps/bin/odpscmd --endpoint=${odpsServer} -u ${odpsaccessId} -p ${odpsaccessKey}"
+datax_py='/home/zr_user/datax3/bin/datax.py'
+fi
+
+# echo "${odpscmd} ${datax_py}"
+
+# sqlplus环境变量
+export ORACLE_HOME=/home/admin/client/oracle
+export LD_LIBRARY_PATH=/home/admin/client/oracle/lib
+export PATH=$JAVA_HOME/bin:$LD_LIBRARY_PATH:$PATH
+export NLS_LANG="AMERICAN_AMERICA.UTF8"
+
+# 准备路径
+allpk_json="${mydir}/${bizdate}/${dwmc}/allpk_json"
+allpk_log="${mydir}/${bizdate}/${dwmc}/allpk_log"
+if [ ! -d ${allpk_json} ]; then mkdir -p "${allpk_json}"; fi;
+if [ ! -d ${allpk_log} ]; then mkdir -p "${allpk_log}"; fi;
+
+#更改标准
+jobname=`echo ${jobname}|tr 'a-z' 'A-Z'`
+dwmc=`echo ${dwmc}|tr 'a-z' 'A-Z'`
+project="SC_JX_${dwmc}"
+sourceTable=`echo ${jobname}`
+targettable=`echo ${jobname}|sed 's/^/PRI_/g'`    
+
+#定义mysql函数
+mysqlcmd()
+{
+db="$1"
+sql="$2"
+#rcount（v3）配置
+if   [ "$db" = "rcount" ]; then
+jdbc="-h99.13.220.242 -P3306 -urcount -prcount -D rcount"
+#sc_sjzlpt（v3）配置
+elif [ "$db" = "sjzlpt" ];then
+jdbc="-h99.13.222.87 -P3306 -usc_dsjsjzlpt -psjzlpt_css12st27 -D sc_sjzlpt"
+fi
+sdata=`mysql $jdbc -N -e "${sql}"`
+if [[ $? -ne 0 ]];then echo "select rds error";exit 1;fi
+echo $sdata
+}
+
+# 获取数据源连接方式，云南实际测试 ffk_datasource_conf 这个表的配置是正确的 datasource_conf表的配置无法登陆
+sql="select concat(db,'|',jdbc,'|',user,'|',pass) from fbk_datasource_conf where dwmc = '${dwmc}';"
+echo ${sql}
+echo `date "+%Y-%m-%d %H:%M:%S"`
+mysqlcmd "rcount" "${sql}"
+db=`echo ${sdata}  |awk -F "|" '{print $1}'`
+jdbc=`echo ${sdata}|awk -F "|" '{print $2}'`
+user=`echo ${sdata}|awk -F "|" '{print $3}'`
+pass=`echo ${sdata}|awk -F "|" '{print $4}'`
+#获取字段
+ffk_tablename=`echo ${sourceTable}|sed -r 's/^(GS_CXTJ|HX_CS_QG|HX_CS_ZDY|HX_DJ|HX_DM_QG|HX_DM_ZDY|HX_FP|HX_FZ|HX_JC|HX_NP|HX_PZ|HX_QX|HX_RD|HX_SB|HX_SF|HX_YH|HX_ZH|HX_ZM|HX_ZS|HX_GZL|HX_GZLYQ|ZJ_FSHLYPT|ZJ_MH|HX_CKTS|ZJ_HCP)_/\1\./g'`
+owner=`echo ${ffk_tablename}|awk -F '.' '{print $1}'`
+table_name=`echo ${ffk_tablename}|awk -F '.' '{print $2}'`
+stable="${ffk_tablename}"
+## odps 配置
+partition=${bizdate}
+truncate="true"
+# 从odps获取主键
+sspk=`${odpscmd} --project=${project} -e "desc ${sourceTable};" |grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -i 'primary_key'|sed 's/ //g' |awk -F '|' '{print $2}'`
+#JSON 参数
+speed="4"
+################################################################################
+json="{
+\"job\": {
+  \"content\":[
+    {
+      \"reader\":{
+        \"name\":\"${db}\",
+        \"parameter\":{
+          \"column\":[
+		  \"${sspk}\"
+          ],
+          \"connection\":[
+            {
+              \"jdbcUrl\":[
+                \"jdbc:oracle:thin:@${jdbc}\"
+              ],
+              \"table\":[
+                \"${stable}\"
+              ]
+            }
+          ],
+          \"fetchSize\":1024,
+          \"password\":\"${pass}\",
+          \"splitPk\":\"\",
+          \"username\":\"${user}\",
+          \"where\":\"\"
+        }
+      },
+       \"writer\":{
+         \"name\":\"odpswriter\",
+         \"parameter\":{
+           \"accessId\":\"${odpsaccessId}\",
+           \"accessKey\":\"${odpsaccessKey}\",
+           \"column\":[
+		   \"${sspk}\"
+           ],
+           \"odpsServer\":\"${odpsServer}\",
+           \"partition\":\"rfq=${partition}\",
+           \"project\":\"${project}\",
+           \"table\":\"${targettable}\",
+           \"truncate\":${truncate},
+           \"tunnelServer\":\"${tunnelServer}\"
+         }
+       }
+    }
+  ],
+  \"setting\":{
+    \"errorLimit\":{
+    \"record\":0
+    },
+    \"speed\":{
+      \"channel\":${speed}
+    }
+  }
+ }
+}"
+#列的字符均被定义为大写，所有的关键字在这里做转换
+echo "${json}" >${allpk_json}/${project}${jobname}.json
+python ${datax_py} --jvm="-Xms2g -Xmx8g" ${allpk_json}/${project}${jobname}.json
+if [[ $? -ne 0 ]];then echo "get all primarykey datax error";exit 1;fi
+exit 0

@@ -5,7 +5,7 @@
 import os
 import shutil
 from docx.oxml.shared import OxmlElement  # 用于添加链接
-from docx.enum.text import WD_PARAGRAPH_ALIGNMENT,WD_LINE_SPACING
+from docx.enum.text import WD_PARAGRAPH_ALIGNMENT,WD_LINE_SPACING,WD_COLOR_INDEX
 from docx.enum.table import WD_TABLE_ALIGNMENT, WD_CELL_VERTICAL_ALIGNMENT
 from docx.oxml.ns import nsdecls
 from docx.oxml import parse_xml
@@ -13,7 +13,6 @@ from docx.oxml.ns import qn
 from docx.shared import Inches, Pt,RGBColor
 import win32com
 from win32com.client import Dispatch
-
 
 class Common():
     # 子类都必须要有这个参数
@@ -125,12 +124,12 @@ class Common():
 
     def addSpecialParagraph2(self, nr, ztdx, doc,sp_before,sp_after):
         """添加一个段落，将两个分隔符之间的内容进行加粗，其他保持不变,传入的时候注意分隔符的中英文区别"""
-        p = doc.add_paragraph()
         nrlist = nr.split(sp_after, 1)
         if len(nrlist) == 2:
             temp = nrlist[0]
             templist = temp.split(sp_before, 1)
             if len(templist) == 2:
+                p = doc.add_paragraph()
                 run0 = p.add_run(templist[0] + sp_before)
                 zt0 = run0.font
                 zt0.size = Pt(ztdx)
@@ -143,16 +142,17 @@ class Common():
                 zt2 = run2.font
                 zt2.size = Pt(ztdx)
                 zt2.bold = False
+                pf = p.paragraph_format
+                pf.first_line_indent = Inches(0.3)
+                dljg = (ztdx + 2) * 0.5
+                pf.space_before = Pt(dljg)
+                pf.space_after = Pt(dljg)
+                pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
             else:
-                run1 = p.add_run(nr)
-                zt1 = run1.font
-                zt1.size = Pt(ztdx)
-        pf = p.paragraph_format
-        pf.first_line_indent = Inches(0.3)
-        dljg = (ztdx + 2) * 0.5
-        pf.space_before = Pt(dljg)
-        pf.space_after = Pt(dljg)
-        pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+                self.addParagraph(nr,ztdx,doc)
+        else:
+            self.addParagraph(nr,ztdx,doc)
+
 
     def setTabBgColor(self, table, colnum, colorStr="A9A9A9"):
         """当然添加表格首行颜色肯定可以和添加表格合并，但是暂时没必要,在里面引用即可，这个对效率影响非常大，十几秒的代码增加这两行之后需要六十多秒"""
@@ -162,9 +162,22 @@ class Common():
                 r'<w:shd {} w:fill="{bgColor}"/>'.format(nsdecls('w'), bgColor=colorStr))
             table.rows[0].cells[i]._tc.get_or_add_tcPr().append(shading_list['shading_elm_' + str(i)])
 
+    def addWarnParagraph(self,doc,nr="此处对应的sql未查询到内容，请注意检查"):
+        """添加一个警告段落，用于无法查询到对应数据的的时候提醒对应人员进行核实"""
+        p = doc.add_paragraph()
+        run = p.add_run(nr)
+        zt = run.font
+        zt.size = Pt(18)
+        zt.color.rgb=RGBColor(255,0,0)
+        pf = p.paragraph_format
+        pf.first_line_indent = Inches(0.3)
+        pf.space_before = Pt(36)
+        pf.space_after = Pt(36)
+        pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+
     def addTable(self, doc, data, table_style, tr_text, tr_width, ztdx):
         """添加一个标准的表格"""
-        colnum = len(data[0])
+        colnum = len(tr_text)
         table = doc.add_table(rows=1, cols=colnum, style=table_style)
         table.alignment = WD_TABLE_ALIGNMENT.CENTER
         # 处理表头
@@ -176,30 +189,43 @@ class Common():
             cp.runs[0].font.bold = True
             cp.paragraph_format.alignment = WD_TABLE_ALIGNMENT.CENTER
             hdr_cells[ri].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER
-        # 处理数据行
-        for ri in range(len(data)):
-            row = table.add_row()
-            for ci in range(len(data[ri])):
-                if ci == 0 and data[ri][0] == data[ri - 1][0]:
-                    # 第一列如果和上一个内容重复，则将表格合并,当前单元格不用再执行任何代码
-                    table.cell(ri, 0).merge(table.cell(ri + 1, 0))
-                    continue
-                rowcells = row.cells
-                # print(ri,ci,data[ri][ci])
-                rowcells[ci].text = str(data[ri][ci])
-                cp = rowcells[ci].paragraphs[0]
-                run = cp.runs[0]
-                font = run.font
-                font.size = Pt(ztdx)
-                pf = cp.paragraph_format
-                rowcells[
-                    ci].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER  # 这个和源码的例子是不同的，不要直接抄源码例子的过来，否则会报错
-                pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
-                self.setTabBgColor(table, colnum)
-                if ci != 0:
-                    pf.alignment = WD_TABLE_ALIGNMENT.LEFT
+        # 如果有数据在处理数据行
+        if data:
+            for ri in range(len(data)):
+                row = table.add_row()
+                for ci in range(len(data[ri])):
+                    if ci == 0 and data[ri][0] == data[ri - 1][0]:
+                        # 第一列如果和上一个内容重复，则将表格合并,当前单元格不用再执行任何代码
+                        table.cell(ri, 0).merge(table.cell(ri + 1, 0))
+                        continue
+                    rowcells = row.cells
+                    # print(ri,ci,data[ri][ci])
+                    rowcells[ci].text = str(data[ri][ci])
+                    cp = rowcells[ci].paragraphs[0]
+                    run = cp.runs[0]
+                    font = run.font
+                    font.size = Pt(ztdx)
+                    pf = cp.paragraph_format
+                    rowcells[
+                        ci].vertical_alignment = WD_CELL_VERTICAL_ALIGNMENT.CENTER  # 这个和源码的例子是不同的，不要直接抄源码例子的过来，否则会报错
+                    pf.line_spacing_rule = WD_LINE_SPACING.ONE_POINT_FIVE
+                    self.setTabBgColor(table, colnum)
+                    if ci != 0:
+                        pf.alignment = WD_TABLE_ALIGNMENT.LEFT
+        else:
+            self.addWarnParagraph(doc,"此处对应的sql未查询到内容，请注意检查")
 
-    # ymgs.tab_stops.add_tab_stop(Cm(2), WD_TABLE_ALIGNMENT.RIGHT, WD_TAB_LEADER.DOTS)
+    def jszs(self,data,xb):
+        """功能：用来对二维列表中指定的列进行求和"""
+        temp_num = 0
+        if data:
+            for a in data:
+                if xb > len(a):
+                    raise ValueError('参数下标不能超过迭代对象第二级的长度！！！')
+                else:
+                    temp_num += a[xb]
+        return temp_num
+
 
     def update_pagenum(self, wordPath, ztdx, doc):
         """更新word页码情况，获取到了总共的，但是不能和每一页对应起来，只能先放着了"""

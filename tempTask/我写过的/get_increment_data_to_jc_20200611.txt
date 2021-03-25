@@ -1,0 +1,122 @@
+#!/bin/bash
+#####################################################################################################
+#author:wlt
+#create-time:2020-06-01
+#update-time:2020-06-03
+#function: get data to increment table
+# 参数：单位代码
+#####################################################################################################
+mydir=`pwd`
+dwmc=$1
+bizdate=`date -d -1day +%Y%m%d`   # 昨天
+bbizdate=`date -d -2day +%Y%m%d`  # 前天
+project='SC_JC_GSZJ'
+odpscmd="/home/admin/odps/bin/odpscmd --project="${project}""
+
+# 处理需要的目录
+testdir="${mydir}/${bizdate}"
+if [ ! -d "${mydir}/${bizdate}" ]; then mkdir "${mydir}/${bizdate}";fi;
+mylog="${testdir}/${dwmc}/log"
+mysql="${testdir}/${dwmc}/sql"
+if [ ! -d "${testdir}/${dwmc}" ]; then mkdir "${testdir}/${dwmc}";fi;
+if [ ! -d "${testdir}/${dwmc}/log" ]; then mkdir "${testdir}/${dwmc}/log";fi;
+if [ ! -d "${testdir}/${dwmc}/sql" ]; then mkdir "${testdir}/${dwmc}/sql";fi;
+
+
+# 获取increment和基础层的表除去干扰列，是否一致，如果一致则进行下一步
+for line in `cat ${mydir}/${dwmc}.list` 
+do 
+table=`echo ${line} | tr '[A-Z]' '[a-z]'` 
+#table_inc=`echo ${table} | tr '[A-Z]' '[a-z]' |sed 's/$/_increment_test/g'
+table_inc=`echo ${table} | tr '[A-Z]' '[a-z]' |sed 's/$/_increment/g' `   # 在所有表名后增加increment
+#基础层增量表字段
+initCols_c=`${odpscmd} -e "desc ${project}.${table_inc};"|grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -vw "opcode" |grep -vw "position" |grep -vw "readtime" |grep -vw "rfq" |grep -vw "sjlybz"| awk '{print $2}' | awk '{printf $0","}'`
+#基础层表字段
+initCols_s=`${odpscmd} -e "desc ${project}.${table};"|grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -vw "rfq" |grep -vw "sjlybz"| awk '{print $2}' | awk '{printf $0","}'`
+initCols=${initCols_s%?}   # %?在获取变量中代表去除后面一位，解决由于最后一位也有逗号的问题
+#拼接无主键时的关联条件
+initCols_pk=`${odpscmd} -e "desc ${project}.${table};"|grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -vw "rfq" |grep -vw "sjlybz"| awk '{print "case when a."$2 " is null then \"&\" else a." $2 " end " }' | awk '{printf $0","}'`
+initColpk=${initCols_pk%?}
+
+#判断表结构是否一致,如不一致需要人工调整致相同
+if [ "${initCols_s}" == "" ];then
+echo "get table cols error"
+exit 1;
+fi
+if [ "${initCols_c}" == "" ];then
+echo "get increment table cols error"
+exit 1;
+fi
+if [ "${initCols_s}" == "${initCols_c}" ];then
+echo "check table cols pass"
+else
+echo "compare col not pass , please adjust to the same structure of the two table  "
+exit 1
+fi
+
+#判断主键情况，如果有主键则主键相等，如果没有主键，那必须所有的列都相等
+sspk=`${odpscmd} -e "desc ${project}.${table};" |grep primary_key |awk -F '|' '{print $2}' |sed 's/ //g' |wc -l`
+if [[ ${sspk} -eq 1 ]];  then 
+pka=` ${odpscmd} -e "desc ${project}.${table};" |grep primary_key |awk -F '|' '{print "a."$2}' |sed 's/ //g' `
+echo ${pka}
+pkb=`echo ${pka} |sed 's/a./b./g'`
+echo ${pkb}
+elif [[ ${sspk} -gt 1 ]];  then
+pk1=` ${odpscmd} -e "desc ${project}.${table};" |grep primary_key |awk -F '|' '{print "a."$2}' |sed 's/ //g' |awk '{printf $0","}' `
+echo ${pk1}
+pka=`echo ${pk1%?} `
+pkb=`echo ${pka} |sed 's/a./b./g'`
+elif [[ ${sspk} -eq 0 ]];  then
+pka=`echo ${initColpk}  `
+pkb=`echo ${initColpk} |sed 's/ a./ b./g'`
+fi
+
+#左表字段 即bizdate分区的表字段
+initCols_a=`${odpscmd} -e "desc ${project}.${table};"|grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -vw "rfq" |grep -vw "sjlybz"| awk '{print "a."$2}' | awk '{printf $0","}'`
+initColsa=${initCols_a%?}  
+#右表字段 即bbizdate分区的表字段
+initCols_b=`${odpscmd} -e "desc ${project}.${table};"|grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -vw "rfq" |grep -vw "sjlybz"| awk '{print "b."$2}' | awk '{printf $0","}'`
+initColsb=${initCols_b%?}
+#关联后的aa表字段
+initCols_t=`${odpscmd} -e "desc ${project}.${table};"|grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -vw "rfq" |grep -vw "sjlybz"| awk '{print "aa."$2}' | awk '{printf $0","}'`
+initColst=`echo ${initCols_t%?} |sed 's/^/aa.opcode,aa.position,aa.readtime,/g'`
+
+#数据操作的类型
+stri=" 'I' as opcode ,NULL as position,NULL as readtime,"
+stru=" 'U' as opcode ,NULL as position,NULL as readtime,"
+strd=" 'D' as opcode ,NULL as position,NULL as readtime,"
+
+#拼接SQL 如果是老分区不存在就是新增的，新分区不存在的就是删除的，如果更时间新分区大于老分区则为更新的
+isql="select ${stri}${initColsa} from  
+(select ${initCols} from ${project}.${table} where rfq='${bizdate}' and sjlybz='${dwmc}' ) a    # 当前业务分区表
+left join 
+(select ${initCols} from ${project}.${table} where rfq='${bbizdate}' and sjlybz='${dwmc}' ) b   # 上一个业务分区表
+on concat(${pka})=concat(${pkb})  where concat(${pkb})  is null "
+
+dsql="select ${strd}${initColsb} from 
+(select ${initCols} from ${project}.${table} where rfq='${bizdate}' and sjlybz='${dwmc}' ) a 
+right join 
+(select ${initCols} from ${project}.${table} where rfq='${bbizdate}' and sjlybz='${dwmc}' ) b 
+on concat(${pka})=concat(${pkb})  where concat(${pka}) is null "
+
+usql="select ${stru}${initColsa} from 
+(select ${initCols} from ${project}.${table} where rfq='${bizdate}' and sjlybz='${dwmc}' ) a 
+left join 
+(select ${initCols} from ${project}.${table} where rfq='${bbizdate}' and sjlybz='${dwmc}' ) b 
+on concat(${pka})=concat(${pkb})  where a.sjtb_sj > b.sjtb_sj  "
+
+#最终的SQL
+fsql="insert overwrite table ${project}.${table_inc} partition (rfq='${bizdate}',sjlybz='${dwmc}') 
+# 查询三个
+select ${initColst} from 
+(
+${isql}
+union all 
+${dsql} 
+union all 
+${usql}
+) aa ;"
+echo "${fsql}">${mysql}/${table}.sql
+#运行SQL并输出日志
+${odpscmd} --project=${project} -e "${fsql}" >${mylog}/${table}.log 2>&1
+done

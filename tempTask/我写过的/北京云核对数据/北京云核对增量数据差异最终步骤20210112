@@ -1,0 +1,301 @@
+# 北京云对比t+1(odps)和t+0(drds)数据增量差异
+
+# 整体思路
+1 在南海云对比出指定数据节点的差异部分数据
+2 将南海云的差异copytask到北京云
+3 将drds全量数据抽取到北京云
+4 将t0和t1进行主键以t1为准关联获取到缺失部分的数据 pkcy
+5 将t0和t1进行主键内关联，获取其他所有字段不相等的差异部分数据 qlcy
+6 将pkcy+qlcy合并起来推送回到drds
+
+--------------------- 1 在南海云对比出指定数据节点的差异部分数据 ---------------------
+create table kf_jc_gszj.mj_dj as 
+-- 初步核定范围为2019083-20200531 经过后期分析数据确定在20201231
+-- 逻辑：t1存在t0不存在的就是新增，t0存在t1不存在就是删除，都存在如果主键相同，其他任何一个列不同的情况就是更新
+with 
+ startrfq as
+(select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20191231')
+,endrfq as
+(select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20200531')
+insert overwrite table kf_jc_gszj.mj_dj
+select *
+  from(
+select te.*,'I' as cd
+  from endrfq te
+  left outer join startrfq ts
+    on ts.djxh  =te.djxh 
+   and ts.sjlybz=te.sjlybz
+ where ts.djxh is null
+ union all
+select ts.*,'D' as cd
+  from startrfq ts
+  left outer join endrfq te
+    on ts.djxh  =te.djxh 
+   and ts.sjlybz=te.sjlybz
+ where te.djxh is null
+ union all
+select te.*,'U' as cd
+  from startrfq ts
+  join endrfq te
+    on ts.djxh  =te.djxh 
+   and ts.sjlybz=te.sjlybz
+ where coalesce(te.gdslx_dm       ,'') <> coalesce(ts.gdslx_dm         ,'')
+    or coalesce(te.ssdabh         ,'') <> coalesce(ts.ssdabh           ,'')
+    or coalesce(te.nsrsbh         ,'') <> coalesce(ts.nsrsbh           ,'')
+    or coalesce(te.nsrmc          ,'') <> coalesce(ts.nsrmc            ,'')
+    or coalesce(te.kzztdjlx_dm    ,'') <> coalesce(ts.kzztdjlx_dm      ,'')
+    or coalesce(te.djzclx_dm      ,'') <> coalesce(ts.djzclx_dm        ,'')
+    or coalesce(te.fddbrxm        ,'') <> coalesce(ts.fddbrxm          ,'')
+    or coalesce(te.fddbrsfzjlx_dm ,'') <> coalesce(ts.fddbrsfzjlx_dm   ,'')
+    or coalesce(te.scjydz         ,'') <> coalesce(ts.scjydz           ,'')
+    or coalesce(te.fddbrsfzjhm    ,'') <> coalesce(ts.fddbrsfzjhm      ,'')
+    or coalesce(te.scjydzxzqhsz_dm,'') <> coalesce(ts.scjydzxzqhsz_dm  ,'')
+    or coalesce(te.nsrzt_dm       ,'') <> coalesce(ts.nsrzt_dm         ,'')
+    or coalesce(te.hy_dm          ,'') <> coalesce(ts.hy_dm            ,'')
+    or coalesce(te.zcdz           ,'') <> coalesce(ts.zcdz             ,'')
+    or coalesce(te.zcdzxzqhsz_dm  ,'') <> coalesce(ts.zcdzxzqhsz_dm    ,'')
+    or coalesce(te.jdxz_dm        ,'') <> coalesce(ts.jdxz_dm          ,'')
+    or coalesce(te.dwlsgx_dm      ,'') <> coalesce(ts.dwlsgx_dm        ,'')
+    or coalesce(te.gdghlx_dm      ,'') <> coalesce(ts.gdghlx_dm        ,'')
+    or coalesce(te.djjg_dm        ,'') <> coalesce(ts.djjg_dm          ,'')
+    or coalesce(te.djrq           ,'0001-01-01') <> coalesce(ts.djrq             ,'0001-01-01')
+    or coalesce(te.zzjg_dm        ,'') <> coalesce(ts.zzjg_dm          ,'')
+    or coalesce(te.kqccsztdjbz    ,'') <> coalesce(ts.kqccsztdjbz      ,'')
+    or coalesce(te.lrr_dm         ,'') <> coalesce(ts.lrr_dm           ,'')
+    or coalesce(te.lrrq           ,'0001-01-01') <> coalesce(ts.lrrq             ,'0001-01-01')
+    or coalesce(te.xgr_dm         ,'') <> coalesce(ts.xgr_dm           ,'')
+    or coalesce(te.xgrq           ,'0001-01-01') <> coalesce(ts.xgrq             ,'0001-01-01')
+    or coalesce(te.sjgsdq         ,'') <> coalesce(ts.sjgsdq           ,'')
+    or coalesce(te.zgswj_dm       ,'') <> coalesce(ts.zgswj_dm         ,'')
+    or coalesce(te.zgswskfj_dm    ,'') <> coalesce(ts.zgswskfj_dm      ,'')
+    or coalesce(te.ssgly_dm       ,'') <> coalesce(ts.ssgly_dm         ,'')
+    or coalesce(te.fjmqybz        ,'') <> coalesce(ts.fjmqybz          ,'')
+    or coalesce(te.swdjblbz       ,'') <> coalesce(ts.swdjblbz         ,'')
+--  or coalesce(te.sjtb_sj        ,'0001-01-01') <> coalesce(ts.sjtb_sj          ,'0001-01-01')
+    or coalesce(te.nsrbm          ,'') <> coalesce(ts.nsrbm            ,'')
+    or coalesce(te.yxbz           ,'') <> coalesce(ts.yxbz             ,'')
+    or coalesce(te.shxydm         ,'') <> coalesce(ts.shxydm           ,'')
+    or coalesce(te.pgjg_dm        ,'') <> coalesce(ts.pgjg_dm          ,'')
+    or coalesce(te.gszxrq         ,'0001-01-01') <> coalesce(ts.gszxrq           ,'0001-01-01')
+--  or coalesce(te.yptetl_sj      ,'') <> coalesce(ts.yptetl_sj        ,'')
+    or coalesce(te.nsrztlx_dm     ,'') <> coalesce(ts.nsrztlx_dm       ,'')
+    or coalesce(te.sjblbz         ,0 ) <> coalesce(ts.sjblbz           ,0 )
+    or coalesce(te.myqybz         ,'') <> coalesce(ts.myqybz           ,'')
+    or coalesce(te.qyhxlb_dm      ,'') <> coalesce(ts.qyhxlb_dm        ,'')
+    or coalesce(te.qyhxly         ,'') <> coalesce(ts.qyhxly           ,'')
+)t;
+
+-- 对更新部分的数据进行单独分析，看下每个列的影响情况
+create table kf_jc_gszj.mj_dj_U_2 as
+
+with
+ startrfq as
+(select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20190831')
+,endrfq as
+(select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20200531')
+
+select te.djxh
+     , te.sjlybz
+     , case when coalesce(te.gdslx_dm       ,'') <> coalesce(ts.gdslx_dm         ,'')                      then 1 else 0 end as gdslx_dm
+     , case when coalesce(te.ssdabh         ,'') <> coalesce(ts.ssdabh           ,'')                      then 1 else 0 end as ssdabh
+     , case when coalesce(te.nsrsbh         ,'') <> coalesce(ts.nsrsbh           ,'')                      then 1 else 0 end as nsrsbh
+     , case when coalesce(te.nsrmc          ,'') <> coalesce(ts.nsrmc            ,'')                      then 1 else 0 end as nsrmc
+     , case when coalesce(te.kzztdjlx_dm    ,'') <> coalesce(ts.kzztdjlx_dm      ,'')                      then 1 else 0 end as kzztdjlx_dm
+     , case when coalesce(te.djzclx_dm      ,'') <> coalesce(ts.djzclx_dm        ,'')                      then 1 else 0 end as djzclx_dm
+     , case when coalesce(te.fddbrxm        ,'') <> coalesce(ts.fddbrxm          ,'')                      then 1 else 0 end as fddbrxm
+     , case when coalesce(te.fddbrsfzjlx_dm ,'') <> coalesce(ts.fddbrsfzjlx_dm   ,'')                      then 1 else 0 end as fddbrsfzjlx_dm
+     , case when coalesce(te.scjydz         ,'') <> coalesce(ts.scjydz           ,'')                      then 1 else 0 end as scjydz
+     , case when coalesce(te.fddbrsfzjhm    ,'') <> coalesce(ts.fddbrsfzjhm      ,'')                      then 1 else 0 end as fddbrsfzjhm
+     , case when coalesce(te.scjydzxzqhsz_dm,'') <> coalesce(ts.scjydzxzqhsz_dm  ,'')                      then 1 else 0 end as scjydzxzqhsz_dm
+     , case when coalesce(te.nsrzt_dm       ,'') <> coalesce(ts.nsrzt_dm         ,'')                      then 1 else 0 end as nsrzt_dm
+     , case when coalesce(te.hy_dm          ,'') <> coalesce(ts.hy_dm            ,'')                      then 1 else 0 end as hy_dm
+     , case when coalesce(te.zcdz           ,'') <> coalesce(ts.zcdz             ,'')                      then 1 else 0 end as zcdz
+     , case when coalesce(te.zcdzxzqhsz_dm  ,'') <> coalesce(ts.zcdzxzqhsz_dm    ,'')                      then 1 else 0 end as zcdzxzqhsz_dm
+     , case when coalesce(te.jdxz_dm        ,'') <> coalesce(ts.jdxz_dm          ,'')                      then 1 else 0 end as jdxz_dm
+     , case when coalesce(te.dwlsgx_dm      ,'') <> coalesce(ts.dwlsgx_dm        ,'')                      then 1 else 0 end as dwlsgx_dm
+     , case when coalesce(te.gdghlx_dm      ,'') <> coalesce(ts.gdghlx_dm        ,'')                      then 1 else 0 end as gdghlx_dm
+     , case when coalesce(te.djjg_dm        ,'') <> coalesce(ts.djjg_dm          ,'')                      then 1 else 0 end as djjg_dm
+     , case when coalesce(te.djrq           ,'0001-01-01') <> coalesce(ts.djrq             ,'0001-01-01')  then 1 else 0 end as djrq
+     , case when coalesce(te.zzjg_dm        ,'') <> coalesce(ts.zzjg_dm          ,'')                      then 1 else 0 end as zzjg_dm
+     , case when coalesce(te.kqccsztdjbz    ,'') <> coalesce(ts.kqccsztdjbz      ,'')                      then 1 else 0 end as kqccsztdjbz
+     , case when coalesce(te.lrr_dm         ,'') <> coalesce(ts.lrr_dm           ,'')                      then 1 else 0 end as lrr_dm
+     , case when coalesce(te.lrrq           ,'0001-01-01') <> coalesce(ts.lrrq             ,'0001-01-01')  then 1 else 0 end as lrrq
+--   , case when coalesce(te.xgr_dm         ,'') <> coalesce(ts.xgr_dm           ,'')                      then 1 else 0 end as xgr_dm
+--   , case when coalesce(te.xgrq           ,'0001-01-01') <> coalesce(ts.xgrq             ,'0001-01-01')  then 1 else 0 end as xgrq
+     , case when coalesce(te.sjgsdq         ,'') <> coalesce(ts.sjgsdq           ,'')                      then 1 else 0 end as sjgsdq
+     , case when coalesce(te.zgswj_dm       ,'') <> coalesce(ts.zgswj_dm         ,'')                      then 1 else 0 end as zgswj_dm
+     , case when coalesce(te.zgswskfj_dm    ,'') <> coalesce(ts.zgswskfj_dm      ,'')                      then 1 else 0 end as zgswskfj_dm
+     , case when coalesce(te.ssgly_dm       ,'') <> coalesce(ts.ssgly_dm         ,'')                      then 1 else 0 end as ssgly_dm
+     , case when coalesce(te.fjmqybz        ,'') <> coalesce(ts.fjmqybz          ,'')                      then 1 else 0 end as fjmqybz
+     , case when coalesce(te.swdjblbz       ,'') <> coalesce(ts.swdjblbz         ,'')                      then 1 else 0 end as swdjblbz
+--   , case when coalesce(te.sjtb_sj        ,'0001-01-01') <> coalesce(ts.sjtb_sj          ,'0001-01-01')  then 1 else 0 end as sjtb_sj
+     , case when coalesce(te.nsrbm          ,'') <> coalesce(ts.nsrbm            ,'')                      then 1 else 0 end as nsrbm
+     , case when coalesce(te.yxbz           ,'') <> coalesce(ts.yxbz             ,'')                      then 1 else 0 end as yxbz
+     , case when coalesce(te.shxydm         ,'') <> coalesce(ts.shxydm           ,'')                      then 1 else 0 end as shxydm
+     , case when coalesce(te.pgjg_dm        ,'') <> coalesce(ts.pgjg_dm          ,'')                      then 1 else 0 end as pgjg_dm
+     , case when coalesce(te.gszxrq         ,'0001-01-01') <> coalesce(ts.gszxrq           ,'0001-01-01')  then 1 else 0 end as gszxrq
+--   , case when coalesce(te.yptetl_sj      ,'') <> coalesce(ts.yptetl_sj        ,'')                      then 1 else 0 end as yptetl_sj
+     , case when coalesce(te.nsrztlx_dm     ,'') <> coalesce(ts.nsrztlx_dm       ,'')                      then 1 else 0 end as nsrztlx_dm
+     , case when coalesce(te.sjblbz         ,0 ) <> coalesce(ts.sjblbz           ,0 )                      then 1 else 0 end as sjblbz
+     , case when coalesce(te.myqybz         ,'') <> coalesce(ts.myqybz           ,'')                      then 1 else 0 end as myqybz
+     , case when coalesce(te.qyhxlb_dm      ,'') <> coalesce(ts.qyhxlb_dm        ,'')                      then 1 else 0 end as qyhxlb_dm
+     , case when coalesce(te.qyhxly         ,'') <> coalesce(ts.qyhxly           ,'')                      then 1 else 0 end as qyhxly
+  from startrfq ts
+  join endrfq te
+    on ts.djxh  =te.djxh
+   and ts.sjlybz=te.sjlybz
+ where coalesce(te.gdslx_dm       ,'') <> coalesce(ts.gdslx_dm         ,'')
+    or coalesce(te.ssdabh         ,'') <> coalesce(ts.ssdabh           ,'')
+    or coalesce(te.nsrsbh         ,'') <> coalesce(ts.nsrsbh           ,'')
+    or coalesce(te.nsrmc          ,'') <> coalesce(ts.nsrmc            ,'')
+    or coalesce(te.kzztdjlx_dm    ,'') <> coalesce(ts.kzztdjlx_dm      ,'')
+    or coalesce(te.djzclx_dm      ,'') <> coalesce(ts.djzclx_dm        ,'')
+    or coalesce(te.fddbrxm        ,'') <> coalesce(ts.fddbrxm          ,'')
+    or coalesce(te.fddbrsfzjlx_dm ,'') <> coalesce(ts.fddbrsfzjlx_dm   ,'')
+    or coalesce(te.scjydz         ,'') <> coalesce(ts.scjydz           ,'')
+    or coalesce(te.fddbrsfzjhm    ,'') <> coalesce(ts.fddbrsfzjhm      ,'')
+    or coalesce(te.scjydzxzqhsz_dm,'') <> coalesce(ts.scjydzxzqhsz_dm  ,'')
+    or coalesce(te.nsrzt_dm       ,'') <> coalesce(ts.nsrzt_dm         ,'')
+    or coalesce(te.hy_dm          ,'') <> coalesce(ts.hy_dm            ,'')
+    or coalesce(te.zcdz           ,'') <> coalesce(ts.zcdz             ,'')
+    or coalesce(te.zcdzxzqhsz_dm  ,'') <> coalesce(ts.zcdzxzqhsz_dm    ,'')
+    or coalesce(te.jdxz_dm        ,'') <> coalesce(ts.jdxz_dm          ,'')
+    or coalesce(te.dwlsgx_dm      ,'') <> coalesce(ts.dwlsgx_dm        ,'')
+    or coalesce(te.gdghlx_dm      ,'') <> coalesce(ts.gdghlx_dm        ,'')
+    or coalesce(te.djjg_dm        ,'') <> coalesce(ts.djjg_dm          ,'')
+    or coalesce(te.djrq           ,'0001-01-01') <> coalesce(ts.djrq             ,'0001-01-01')
+    or coalesce(te.zzjg_dm        ,'') <> coalesce(ts.zzjg_dm          ,'')
+    or coalesce(te.kqccsztdjbz    ,'') <> coalesce(ts.kqccsztdjbz      ,'')
+    or coalesce(te.lrr_dm         ,'') <> coalesce(ts.lrr_dm           ,'')
+    or coalesce(te.lrrq           ,'0001-01-01') <> coalesce(ts.lrrq             ,'0001-01-01')
+--  or coalesce(te.xgr_dm         ,'') <> coalesce(ts.xgr_dm           ,'')
+--  or coalesce(te.xgrq           ,'0001-01-01') <> coalesce(ts.xgrq             ,'0001-01-01')
+    or coalesce(te.sjgsdq         ,'') <> coalesce(ts.sjgsdq           ,'')
+    or coalesce(te.zgswj_dm       ,'') <> coalesce(ts.zgswj_dm         ,'')
+    or coalesce(te.zgswskfj_dm    ,'') <> coalesce(ts.zgswskfj_dm      ,'')
+    or coalesce(te.ssgly_dm       ,'') <> coalesce(ts.ssgly_dm         ,'')
+    or coalesce(te.fjmqybz        ,'') <> coalesce(ts.fjmqybz          ,'')
+    or coalesce(te.swdjblbz       ,'') <> coalesce(ts.swdjblbz         ,'')
+--  or coalesce(te.sjtb_sj        ,'0001-01-01') <> coalesce(ts.sjtb_sj          ,'0001-01-01')
+    or coalesce(te.nsrbm          ,'') <> coalesce(ts.nsrbm            ,'')
+    or coalesce(te.yxbz           ,'') <> coalesce(ts.yxbz             ,'')
+    or coalesce(te.shxydm         ,'') <> coalesce(ts.shxydm           ,'')
+    or coalesce(te.pgjg_dm        ,'') <> coalesce(ts.pgjg_dm          ,'')
+    or coalesce(te.gszxrq         ,'0001-01-01') <> coalesce(ts.gszxrq           ,'0001-01-01')
+--  or coalesce(te.yptetl_sj      ,'') <> coalesce(ts.yptetl_sj        ,'')
+    or coalesce(te.nsrztlx_dm     ,'') <> coalesce(ts.nsrztlx_dm       ,'')
+    or coalesce(te.sjblbz         ,0 ) <> coalesce(ts.sjblbz           ,0 )
+    or coalesce(te.myqybz         ,'') <> coalesce(ts.myqybz           ,'')
+    or coalesce(te.qyhxlb_dm      ,'') <> coalesce(ts.qyhxlb_dm        ,'')
+    or coalesce(te.qyhxly         ,'') <> coalesce(ts.qyhxly           ,'')
+;
+
+--------------------- 2 将南海云的差异copytask到北京云 ---------------------
+2.1 创建表
+将南海云表结构通过export table mj_dj; 导出后再北京云进行创建
+2.2 复制
+/home/admin/odps/bin/odpscmd --project=kf_jc_gszj --config='/home/admin/bj.conf' -e "copy -o -d import -url http://dt.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/kf_jc_gszj/mj_dj -t kf_jc_gszj.mj_dj -e http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api -rid yXKpKuN0xKF5MLpK -rkey 1glCWzC8XkTT3BSpoY9NkYMibQslxB"
+
+--------------------- 3 将drds全量数据抽取到北京云 ---------------------
+cd /home/admin/lipengchao
+sh drdstoopds.sh 20201222 t0_tablelist
+
+--------------------- 4 将t0和t1进行主键以t1为准关联获取到缺失部分的数据 pkcy ---------------------
+
+---------- 统计数据drds数据更新日期在设定日期范围内的（2020年1月到5月）
+select dt,count(t0.djxh)
+from(select * from kf_jc_gszj.mj_dj) t1
+left join (
+select djxh,sjlybz_jz as sjlybz ,case when substr(readtime,1,10)>'2020-05-31' then 1 else 0 end as dt
+from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222' and substr(readtime,1,4)>='2020' ) t0
+on t0.djxh=t1.djxh and t0.sjlybz=t1.sjlybz
+group by dt;
+
+从结果得到在范围内缺失的数据是14575297
+| dt         | _c1        |
++------------+------------+
+| NULL       | 0          |
+| 0          | 14575297   |
+| 1          | 8746642    |
+
+-- 获取到实际差异
+select count(t0.djxh)
+ from(select * from kf_jc_gszj.mj_dj) t1
+left join(select djxh,sjlybz_jz as sjlybz
+  from kf_jc_gszj.l_hx_dj_dj_nsrxx 
+ where rfq='20201222'
+   and readtime>='2020-01-01 00:00:00'
+   and readtime<='2020-05-31 23:59:59')t0
+    on t0.djxh  =t1.djxh
+   and t0.sjlybz=t1.sjlybz
+ where t0.djxh is not null;
+ 
+ 14575297  从结果看和上面一致没有问题
+ 
+ --------------------- 5 将t0和t1进行主键内关联，获取其他所有字段不相等的差异部分数据 qlcy ---------------------
+
+ select count(*)
+  from(
+select * from kf_jc_gszj.mj_dj) t1
+  join(
+select *
+  from kf_jc_gszj.l_hx_dj_dj_nsrxx 
+ where rfq='20201222'
+   and readtime>='2020-01-01 00:00:00'
+   and readtime<='2020-05-31 23:59:59')t0
+    on t0.djxh     =t1.djxh
+   and t0.sjlybz_jz=t1.sjlybz
+ where coalesce(t1.gdslx_dm       ,'') <> coalesce(t0.gdslx_dm         ,'')
+    or coalesce(t1.ssdabh         ,'') <> coalesce(t0.ssdabh           ,'')
+    or coalesce(t1.nsrsbh         ,'') <> coalesce(t0.nsrsbh           ,'')
+    or coalesce(t1.nsrmc          ,'') <> coalesce(t0.nsrmc            ,'')
+    or coalesce(t1.kzztdjlx_dm    ,'') <> coalesce(t0.kzztdjlx_dm      ,'')
+    or coalesce(t1.djzclx_dm      ,'') <> coalesce(t0.djzclx_dm        ,'')
+    or coalesce(t1.fddbrxm        ,'') <> coalesce(t0.fddbrxm          ,'')
+    or coalesce(t1.fddbrsfzjlx_dm ,'') <> coalesce(t0.fddbrsfzjlx_dm   ,'')
+    or coalesce(t1.scjydz         ,'') <> coalesce(t0.scjydz           ,'')
+    or coalesce(t1.fddbrsfzjhm    ,'') <> coalesce(t0.fddbrsfzjhm      ,'')
+    or coalesce(t1.scjydzxzqhsz_dm,'') <> coalesce(t0.scjydzxzqhsz_dm  ,'')
+    or coalesce(t1.nsrzt_dm       ,'') <> coalesce(t0.nsrzt_dm         ,'')
+    or coalesce(t1.hy_dm          ,'') <> coalesce(t0.hy_dm            ,'')
+    or coalesce(t1.zcdz           ,'') <> coalesce(t0.zcdz             ,'')
+    or coalesce(t1.zcdzxzqhsz_dm  ,'') <> coalesce(t0.zcdzxzqhsz_dm    ,'')
+    or coalesce(t1.jdxz_dm        ,'') <> coalesce(t0.jdxz_dm          ,'')
+    or coalesce(t1.dwlsgx_dm      ,'') <> coalesce(t0.dwlsgx_dm        ,'')
+    or coalesce(t1.gdghlx_dm      ,'') <> coalesce(t0.gdghlx_dm        ,'')
+    or coalesce(t1.djjg_dm        ,'') <> coalesce(t0.djjg_dm          ,'')
+    or coalesce(t1.djrq           ,'0001-01-01') <> coalesce(t0.djrq             ,'0001-01-01')
+    or coalesce(t1.zzjg_dm        ,'') <> coalesce(t0.zzjg_dm          ,'')
+    or coalesce(t1.kqccsztdjbz    ,'') <> coalesce(t0.kqccsztdjbz      ,'')
+    or coalesce(t1.lrr_dm         ,'') <> coalesce(t0.lrr_dm           ,'')
+    or coalesce(t1.lrrq           ,'0001-01-01') <> coalesce(t0.lrrq             ,'0001-01-01')
+    or coalesce(t1.xgr_dm         ,'') <> coalesce(t0.xgr_dm           ,'')
+    or coalesce(t1.xgrq           ,'0001-01-01') <> coalesce(t0.xgrq             ,'0001-01-01')
+    or coalesce(t1.sjgsdq         ,'') <> coalesce(t0.sjgsdq           ,'')
+    or coalesce(t1.zgswj_dm       ,'') <> coalesce(t0.zgswj_dm         ,'')
+    or coalesce(t1.zgswskfj_dm    ,'') <> coalesce(t0.zgswskfj_dm      ,'')
+    or coalesce(t1.ssgly_dm       ,'') <> coalesce(t0.ssgly_dm         ,'')
+    or coalesce(t1.fjmqybz        ,'') <> coalesce(t0.fjmqybz          ,'')
+    or coalesce(t1.swdjblbz       ,'') <> coalesce(t0.swdjblbz         ,'')
+--  or coalesce(t1.sjtb_sj        ,'0001-01-01') <> coalesce(t0.sjtb_sj          ,'0001-01-01')
+    or coalesce(t1.nsrbm          ,'') <> coalesce(t0.nsrbm            ,'')
+    or coalesce(t1.yxbz           ,'') <> coalesce(t0.yxbz             ,'')
+    or coalesce(t1.shxydm         ,'') <> coalesce(t0.shxydm           ,'')
+    or coalesce(t1.pgjg_dm        ,'') <> coalesce(t0.pgjg_dm          ,'')
+    or coalesce(t1.gszxrq         ,'0001-01-01') <> coalesce(t0.gszxrq           ,'0001-01-01')
+--  or coalesce(t1.yptetl_sj      ,'') <> coalesce(t0.yptetl_sj        ,'')
+    or coalesce(t1.nsrztlx_dm     ,'') <> coalesce(t0.nsrztlx_dm       ,'')
+    or coalesce(t1.sjblbz         ,0 ) <> coalesce(t0.sjblbz           ,0 )
+    or coalesce(t1.myqybz         ,'') <> coalesce(t0.myqybz           ,'')
+--    or coalesce(t1.qyhxlb_dm      ,'') <> coalesce(t0.qyhxlb_dm        ,'')
+--    or coalesce(t1.qyhxly         ,'') <> coalesce(t0.qyhxly           ,'')
+;
++------------+
+| _c0        |
++------------+
+| 144400     |
++------------+
+
+ --------------------- 6 将pkcy+qlcy合并起来推送回到drds ---------------------
+ 
+sh odpstodrds.sh cy20201222 l_hx_dj_dj_nsrxx

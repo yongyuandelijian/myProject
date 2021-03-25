@@ -1,0 +1,162 @@
+#!/bin/bash
+# 功能：从drds库（sjjc 北京云在线库），全量同步数据到北京云odps kf_jc_gszj
+# 参数：1 tablelist（t0_tablelist）用于读取要抽取的表单  2 bizdate （20201221） bizdate 用于指定存储在odps中的分区
+# 用法：sh drdstoopds.sh 20201222 t0_tablelist
+# 思路：从表清单文件中逐个获取表名称，传入表清单文件名称，如果表不存在则需要先自动创建表，如果表存在则直接拼接json进行同步
+# 修改：所有参数都已经给定用来在crontab中测试准确性稳定性  sh /home/admin/work_space/lpc/makejson_drds_oracle.sh
+
+# 需要的参数准备
+bizdate=$1
+tablelist=$2
+projectname='KF_JC_GSZJ'  # 当前是固定的，如果需要可以进行传参
+
+# 目标端北京云odps链接信息
+endpoint='http://service.cn-beijing-gjsw-d01.odps.bjops.cloud.tax/api'
+accessid='MfEPL30xpEODxw3U'
+accesskey='UgP8mJmLNb0ZlSdo4BIRwuS86X2PPB'
+odpscmd="/home/admin/client/odps/bin/odpscmd --endpoint=${endpoint} -u ${accessid} -p ${accesskey}"
+tunnelServer="http://dt.cn-beijing-gjsw-d01.odps.bjops.cloud.tax"
+
+# 源端drds链接信息
+src_dbname='sjjc'
+src_ip='100.63.137.163'
+src_port='3306'
+src_username='sjjc'
+src_password='Sjjc1234'
+ 
+# 处理目录和一些必要的检查
+if [ $# -ne 2 ] || [ ${#bizdate} -ne 8 ] || [ -z ${tablelist} ]
+then
+echo "参数个数和要求的2个不匹配或者是日分区参数不是要求的8位，当前输入的参数是【$*】请核对后再进行操作！！！"; 
+exit -1; 
+fi;  # 必须符合参数要求
+
+echo '' >${bizdate}errtable.list;  # 如果错误文件不存在则进行创建,存在则进行清空
+
+json_dir="${bizdate}/json"
+log_dir="${bizdate}/log"
+
+if [ ! -d "${json_dir}" ]; then mkdir -p ${json_dir}; fi;
+if [ ! -d "${log_dir}" ]; then mkdir -p ${log_dir}; fi;
+
+for tablename in `cat ${tablelist}`
+do
+if [ -z "${tablename}" ]; then echo "要处理的表是:【${tablename}】不能为空"; continue; fi;
+# 获取到表名称
+src_tablename="${tablename}"
+tar_tablename=`echo "${tablename}" |sed 's/^/L_/g'`
+
+# 无论表是否存在都执行创建语句
+getcreatesql="
+set session group_concat_max_len = 102400;
+select concat(\"create table if not exists kf_jc_gszj.L_\",t3.table_name,\" (\",t3.mcm,\" ,yptetl_sj string comment \'云平台ETL时间\' ) comment \'\",t4.my_tab_comment,\"\' partitioned by (rfq string comment \'日分区\');\") from (
+select table_schema,table_name,GROUP_CONCAT(cm) as mcm from 
+(select table_schema,table_name,concat(column_name,\" \",mydata_type,\" comment \'\",REPLACE(myCOLUMN_COMMENT,\"\'\",\"\\\'\"),\"\'\") as cm from (
+SELECT 	table_schema,table_name, column_name,
+case when data_type in ('blob','char','text','longblob','enum','longtext','mediumtext','varchar') then \"string\"
+when data_type in  ('date','time','timestamp','datetime') then \"datetime\"
+when data_type in ('float','decimal','double') then \"double\"
+when data_type in ('smallint','bigint','int','tinyint') then \"bigint\" end as mydata_type,
+case when column_key='PRI' then CONCAT(\"primary_key:\",replace(COLUMN_COMMENT,'|','')) else  replace(COLUMN_COMMENT,'|','') end  as myCOLUMN_COMMENT
+FROM 
+	information_schema.COLUMNS
+WHERE  table_schema='sjjc'  and 
+ column_name not in ('rfq','yptetl_sj') and
+	table_name ='${src_tablename}' ) t1 ) t2
+group by table_schema,table_name ) t3 
+left outer join (
+SELECT
+	table_schema,table_name,replace(table_comment,\"\'\",\"\\\'\") as my_tab_comment
+FROM
+	information_schema.tables
+WHERE
+    table_schema='sjjc' and 
+	table_name ='${src_tablename}'
+) t4 
+on t3.table_name=t4.table_name
+and t3.table_schema=t4.table_schema;"
+
+finalsql=`mysql -h${src_ip} -P${src_port} -u${src_username} -p${src_password} -D${src_dbname} -N -e "${getcreatesql}" |awk -F '|' '{print $1}'`
+
+echo "${finalsql}"
+
+${odpscmd} --project=${projectname} -e "${finalsql}"
+if [ $? -ne 0 ]; then echo "【${tablename}】创建表错误!!!"; echo "${tablename}" >>${bizdate}errtable.list; continue; fi;  # 如果有问题记录到错误日志并且跳过下面操作执行下一个操作
+
+# 表建好之后，则拼接json,需要信息列名称和主键,处理准备信息
+getcol_sql="SELECT column_name FROM information_schema.COLUMNS WHERE table_schema='sjjc' and column_name not in ('rfq','yptetl_sj') and table_name ='${src_tablename}';"
+all_columns=`mysql -h${src_ip} -P${src_port} -u${src_username} -p${src_password} -D${src_dbname} -N -e "${getcol_sql}" |awk -F '|' '{printf $1","}'|sed 's/.$//g'|sed 's/,/","/g'|sed 's/^/"/g'|sed 's/$/"/g' |tr 'a-z' 'A-Z'|sed 's/ //g'`
+
+getpkcol_sql="SELECT column_name FROM information_schema.COLUMNS WHERE table_schema='sjjc' and column_name not in ('rfq','yptetl_sj') and table_name ='${src_tablename}' and column_key='PRI';"
+all_pk=`mysql -h${src_ip} -P${src_port} -u${src_username} -p${src_password} -D${src_dbname} -N -e "${getpkcol_sql}" |awk -F '|' '{printf $1","}'|sed 's/.$//g' |tr 'a-z' 'A-Z'|sed 's/ //g'`
+
+
+datax_where=''  # 这个配置先冗余，防止以后需要
+truncate="true"
+# 拼接json
+
+################################ json ################################################
+json="{
+\"job\": {
+  \"content\":[
+    {
+      \"reader\":{
+        \"name\": \"drdsreader\",
+        \"parameter\":{
+		\"username\": \"${src_username}\",
+		\"password\": \"${src_password}\",
+        \"column\":[
+		    ${all_columns}
+		],
+		\"where\": \"${datax_where}\",
+        \"connection\" : [
+			{
+				\"table\": [
+					\"${src_tablename}\"
+				],
+				\"jdbcUrl\": [
+					\"jdbc:mysql://${src_ip}:${src_port}/${src_dbname}?useUnicode=true&characterEncoding=utf-8\"
+				]
+			}
+		  ]
+        }
+     },
+       \"writer\":{
+         \"name\":\"odpswriter\",
+         \"parameter\":{
+           \"accessId\":\"${accessid}\",
+           \"accessKey\":\"${accesskey}\",
+           \"column\":[
+				${all_columns}
+           ],
+           \"odpsServer\":\"${endpoint}\",
+           \"partition\":\"rfq=${bizdate}\",
+           \"project\":\"${projectname}\",
+           \"table\":\"${tar_tablename}\",
+           \"truncate\":${truncate},
+           \"tunnelServer\":\"${tunnelServer}\"
+         }
+       }
+    }
+  ],
+  \"setting\":{
+    \"errorLimit\":{
+    \"record\":0
+     },
+    \"speed\":{
+      \"channel\":1
+    }
+  }
+ }
+}"
+#列的字符均被定义为大写，所有的关键字在这里做转换
+echo "${json}" >${json_dir}/${tar_tablename}.json 
+
+python /home/admin/datax3/bin/datax.py --jvm="-Xms2g -Xmx8g"  ${json_dir}/${tar_tablename}.json >&1|tee -a ${log_dir}/${tar_tablename}.log 
+
+if [[ $? -ne 0 ]];then echo "执行json失败！！！";exit 1;fi
+
+
+done;
+
+exit 0

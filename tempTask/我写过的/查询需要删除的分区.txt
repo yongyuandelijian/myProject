@@ -1,0 +1,21 @@
+select project_name,name,split_part(split_part(partition_spec,'/','1'),'=','2') fq
+from meta.m_table
+where ds='20200901'
+and project_name='SC_JC_GSZJ'
+and type='PARTITION'  # 分区表
+and length(split_part(split_part(partition_spec,'/','1'),'=','2'))=8 # 只处理日分区的
+and datediff(getdate(),to_date(split_part(split_part(partition_spec,'/','1'),'=','2'),'yyyymmdd'),'dd')>10 # 十天以内的不处理
+and to_date(split_part(split_part(partition_spec,'/','1'),'=','2'),'yyyymmdd')<>lastday(to_date(split_part(split_part(partition_spec,'/','1'),'=','2'),'yyyymmdd')); 
+# 月底的不处理
+
+
+
+select project_name,name,split_part(split_part(partition_spec,'/','1'),'=','2') fq
+from meta.m_table
+where ds='20200901'
+and tolower(project_name)='sc_jc_gszj'
+and type='PARTITION'
+and length(split_part(split_part(partition_spec,'/','1'),'=','2'))=8
+and datediff(getdate(),to_date(split_part(split_part(partition_spec,'/','1'),'=','2'),'yyyymmdd'),'dd')>10
+and to_date(split_part(split_part(partition_spec,'/','1'),'=','2'),'yyyymmdd')<>lastday(to_date(split_part(split_part(partition_spec,'/','1'),'=','2'),'yyyymmdd')); 
+

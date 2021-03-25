@@ -1,0 +1,31 @@
+# 功能：将指定表单的所有单位分区从南海云copytask到北京云
+# 参数：1 表清单（t0.tablelist）  2 bizdate （20201220）
+# 用法： sh nhtobj.sh cy20201228 t0_tablelist kf_jc_gszj
+# aaa 20201221
+
+bizdate=$1
+tablelist=$2
+projectname=$3
+if [ $# -ne 3 ]; then echo "参数个数和要求的3个不匹配，当前输入的参数是【$*】请核对后再进行操作！！！"; exit -1; fi;  # 参数要求必须合理
+
+
+odpscmd="/home/admin/odps/bin/odpscmd --project=kf_jc_gszj"
+
+
+echo '' >errtable.list;  # 如果错误文件不存在则进行创建,存在则进行清空
+
+for tablename in `cat ${tablelist}`
+do
+for dw in `cat alldw`
+do
+${odpscmd} -e " alter table kf_jc_gszj.${tablename} add if not exists partition (rfq='${bizdate}',sjlybz='${dw}'); ";
+if [ $? -ne 0 ]; then echo "表${tablename}创建分区失败！！！"; echo "表${tablename}数据来源标志${dw}创建分区失败" >>errtable.list; exit -1; fi;
+# 进行复制
+temp_text="${odpscmd} --config='/home/admin/bj.conf' -e copy -o -d import -url http://dt.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/kf_jc_gszj/${tablename}/rfq=${bizdate},sjlybz=${dw} -t  kf_jc_gszj.${tablename} -p rfq=${bizdate},sjlybz=${dw} -e http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api -rid yXKpKuN0xKF5MLpK -rkey 1glCWzC8XkTT3BSpoY9NkYMibQslxB";
+echo "现在执行的命令是：${temp_text}"
+
+${odpscmd} --config='/home/admin/bj.conf' -e "copy -o -d import -url http://dt.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/kf_jc_gszj/${tablename}/rfq=${bizdate},sjlybz=${dw} -t  kf_jc_gszj.${tablename} -p rfq=${bizdate},sjlybz=${dw} -e http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api -rid yXKpKuN0xKF5MLpK -rkey 1glCWzC8XkTT3BSpoY9NkYMibQslxB"
+
+if [ $? -ne 0 ]; then echo "表${tablename}同步失败！！！"; echo "表${tablename}数据来源标志${dw}同步数据失败" >>errtable.list; fi;
+done
+done;

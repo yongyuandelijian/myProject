@@ -1,0 +1,18 @@
+#!/bin/bash
+# 判断时间是否合法，如果合法将开关任务置成功，否则置失败
+# lipengchao
+# 20210223
+#********************************************************************#
+odpscmd="/home/admin/client/odps/bin/odpscmd --endpoint= -u 11111 -p 2222 --project=3333"
+bizdate=`date +"%Y%m%d" --date="-1 day"`
+echo "${bizdate}"
+sfhf=`${odpscmd} -e "select count(1) ts from kf_jc_gszj.mx_ldse_cs_ldse_pzb where yxrq='${bizdate}' and yxbz='Y' and xybz='Y';"|awk -F '|' '{print $2}'|grep -v 'ts'`
+
+if [ ${sfhf} -gt 0 ]
+then
+echo "业务日期在配置表中";
+exit 0;
+else
+echo "业务日期不再配置表中，任务置为失败"
+exit -1;
+fi

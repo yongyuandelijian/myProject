@@ -1,0 +1,75 @@
+mysql -h 100.63.139.52 -P3306 -usystemdata -psystemdata_0411 -Dsystemdata -e "
+select a.task_inst_id
+from phoenix_task_inst a,phoenix_app_config b
+where a.app_id = b.app_id
+and a.gmtdate = CURRENT_DATE-2 
+and a.status in ('2','3','4')
+and b.project_env='PROD'
+AND B.NAME LIKE 'SC_JX___ZSS'
+and a.node_name LIKE 'r_ls%'
+order by a.due_time asc ; " |grep -v "task_inst_id" 
+
+-- 1418
+
+/home/admin/kill_r_ls_task_id.txt
+
+for i in `cat r_ls.task_id`; do curl -i -X PUT -H "Content-Type:application/json" -d '{ "opCode":"RERUN_BY_MANUAL","opSEQ":123456,"opUser":"068198" }' "http://100.63.97.233/engine/2.0/tasks/${i}/kill"; sleep 1; done
+for i in `cat /home/admin/kill_r_ls_task_id.txt`; do curl -i -X PUT -H "Content-Type:application/json" -d '{ "opCode":"RERUN_BY_MANUAL","opSEQ":123456,"opUser":"068198" }' "http://100.63.97.233/engine/2.0/tasks/${i}/kill"; sleep 1; done
+
+
+SELECT * FROM phoenix_task_inst WHERE APP_ID in ('10114','10115','10116','10118','10120','10123','10124','10125','10126','10127','10128','10129','10130','10131','10132','10133','10134','10135','10136','10137','10138','10139','10140','10141','10142','10143','10144','10145','10146','10147','10148','10149','10150','10151','10152','10153') and 
+
+
+SELECT * FROM phoenix_app_config WHERE NAME LIKE 'SC_JX___ZSS' ;
+
+-- 
+mysql -h 100.63.139.52 -P3306 -usystemdata -psystemdata_0411 -Dsystemdata -e "
+select a.task_inst_id  
+from phoenix_task_inst a,phoenix_app_config b
+where a.app_id = b.app_id
+and a.gmtdate = CURRENT_DATE
+and a.due_time='2020-09-27 11:50:00'
+and a.status = '6'
+and b.project_env='PROD'
+AND B.NAME LIKE 'SC_JX___ZSS'
+and a.node_name LIKE 'r_ls%'
+order by a.due_time asc ; " |grep -v task_inst_id | wc -l
+
+mysql -h 100.63.139.52 -P3306 -usystemdata -psystemdata_0411 -Dsystemdata -e "
+select a.task_inst_id  
+from phoenix_task_inst a,phoenix_app_config b
+where a.app_id = b.app_id
+and a.gmtdate = CURRENT_DATE
+and a.due_time='2020-09-27 11:50:00'
+and a.status <> '6'
+and b.project_env='PROD'
+AND B.NAME LIKE 'SC_JX___ZSS'
+and a.node_name ='makeconf_min'
+order by a.due_time asc ; " |grep -v task_inst_id | wc -l
+
+select a.task_inst_id,b.name,a.node_name,a.due_time,a.status  
+from phoenix_task_inst a,phoenix_app_config b
+where a.app_id = b.app_id
+and a.gmtdate = CURRENT_DATE
+and a.due_time='2020-09-27 11:50:00'
+and a.status <> '6'
+and b.project_env='PROD'
+AND B.NAME LIKE 'SC_JX___ZSS'
+and a.node_name ='makeconf_min'
+order by a.due_time asc ;
+
+select a.task_inst_id,b.name,a.node_name,a.due_time,a.status  
+from phoenix_task_inst a,phoenix_app_config b
+where a.app_id = b.app_id
+and a.gmtdate = CURRENT_DATE
+and a.due_time='2020-09-27 12:00:00'
+and a.status = '4'
+and b.project_env='PROD'
+AND B.NAME LIKE 'SC_JX___ZSS'
+and a.node_name LIKE 'r_ls%'
+order by a.due_time asc ; 
+
+set_succ_r_lsid.txt
+for i in `cat set_succ_r_lsid.txt`; do curl -i -X PUT -H "Content-Type:application/json" -d '{ "opCode":"RERUN_BY_MANUAL","opSEQ":123456,"opUser":"068198" }' "http://100.63.97.233/engine/2.0/tasks/${i}/setsuccess"; done
+
+for i in `cat set_succ_task_id_makeconf.txt`; do curl -i -X PUT -H "Content-Type:application/json" -d '{ "opCode":"RERUN_BY_MANUAL","opSEQ":123456,"opUser":"068198" }' "http://100.63.97.233/engine/2.0/tasks/${i}/setsuccess"; done

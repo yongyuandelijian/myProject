@@ -1,0 +1,682 @@
+# 目的：使用南海n_ls表201909-202015这段时间的增量（kf_jc_gszj的zl20201222），来和drds在线库抽取到北京云的数据（kf_jc_gszj的20201222）进行比对
+# 步骤：1 将n_ls表201909-202005分区的数据按照表主键和opcode开窗，获取position位置最大的记录存入zl分区，然后copytask到北京云
+# 		2 drds的在线库抽取到北京云的kf_jc_gszj标准分区
+# 		3 将两个分区的数据进行关联比对，然后将差异数据写入cy分区
+# 		4 最后将差异分区replace into 到在线库，这步暂时不用（脚本已经写好了）
+dwmc=$1
+src_projectname="sc_jx_${dwmc}"
+tar_projectname="kf_jc_gszj"
+tar_tablename="hx_dj_dj_nsrxx"
+src_tablename="n_ls_${tar_tablename}"
+
+create table if not exists kf_jc_gszj.L_hx_dj_dj_nsrxx (OPCODE string comment '',POSITION bigint comment '',READTIME string comment '',DJXH string comment 'primary_key:primary_key:登记序号',GDSLX_DM string comment '国地税类型代码 ',SSDABH string comment '税收档案编号',NSRSBH string comment '纳税人识别号',NSRMC string comment '纳税人名称',KZZTDJLX_DM string comment '课征主体登记类型代码',DJZCLX_DM string comment '登记注册类型代码',FDDBRXM string comment '法定代表人姓名',FDDBRSFZJLX_DM string comment '法定代表人身份证件类型代码',SCJYDZ string comment '生产经营地址',FDDBRSFZJHM string comment '法定代表人身份证号码',SCJYDZXZQHSZ_DM string comment '生产经营地址行政区划数字代码',NSRZT_DM string comment '纳税人状态代码',HY_DM string comment '行业代码',ZCDZ string comment '注册地址',ZCDZXZQHSZ_DM string comment '注册地址行政区划数字代码',JDXZ_DM string comment '街道乡镇代码',DWLSGX_DM string comment '单位隶属关系代码',GDGHLX_DM string comment '国地管户类型代码',DJJG_DM string comment '登记机关代码',DJRQ datetime comment '登记日期',ZZJG_DM string comment '组织机构代码',KQCCSZTDJBZ string comment '跨区财产税主体登记标志',LRR_DM string comment '录入人代码',LRRQ datetime comment '录入日期',XGR_DM string comment '修改人代码',XGRQ datetime comment '修改日期',SJGSDQ string comment '数据归属地区',ZGSWJ_DM string comment '主管税务局代码',ZGSWSKFJ_DM string comment '主管税务所（科、分局）代码',SSGLY_DM string comment '税收管理员代码',FJMQYBZ string comment '非居民企业标志',SWDJBLBZ string comment '税务登记补录标志',SJTB_SJ datetime comment '数据同步时间',NSRBM string comment '纳税人编号',YXBZ string comment '有效标志',SHXYDM string comment '社会信用代码',PGJG_DM string comment '评估机关代码评估机关代码',GSZXRQ datetime comment '工商注销日期',NSRZTLX_DM string comment '',SJBLBZ string comment '',MYQYBZ string comment '',SFQ bigint comment '',SJLYBZ_JZ string comment 'primary_key:' ,yptetl_sj string comment '云平台ETL时间' ) comment '纳税人基本信息' partitioned by (rfq string comment '日分区');
+
+insert overwrite table ${tar_projectname}.${targetTable} partition (RFQ = '${bizDate}',SJLYBZ = '${dwmc}') 
+select ${jcallCols} 
+  from (select ${allColsls},row_number() over (partition by ${partitioncols} order by cast(position as decimal) desc) as rn 
+          from ${projectName}.${sourceTable} 
+         where rfq >= '${bizDate}' 
+           and rfq < '${nextDate}') a 
+ where rn = 1 
+   and opcode <> 'D'"
+   
+   
+   
+   select count(1) from  sc_jx_nxst.n_ls_hx_dj_dj_nsrxx where rfq>=20190901 and rfq<20200501;
+   
+   
+# 思路更换：
+1 使用20200531和20190831两个节点的分区数据进行比对获取到区间内更新的数据存放到kf_jc_gszj.hx_dj_dj_nsrxx分区bg20201228
+2 将变更分区copy到北京云，和drds数据进行比较 主键关联获取到缺失数据
+3 全量关联获取到全部缺失情况
+
+-- 新建表
+create table IF NOT EXISTS kf_jc_gszj.`hx_dj_dj_nsrxx` (opcode string comment "变更类型",`djxh` string comment "primary_key:登记序号", `gdslx_dm` string comment "国地税类型代码 ", `ssdabh` string comment "税收档案编号", `nsrsbh` string comment "纳税人识别号", `nsrmc` string comment "纳税人名称", `kzztdjlx_dm` string comment "课征主体登记类型代码", `djzclx_dm` string comment "登记注册类型代码", `fddbrxm` string comment "法定代表人姓名", `fddbrsfzjlx_dm` string comment "法定代表人身份证件类型代码", `scjydz` string comment "生产经营地址", `fddbrsfzjhm` string comment "法定代表人身份证号码", `scjydzxzqhsz_dm` string comment "生产经营地址行政区划数字代码", `nsrzt_dm` string comment "纳税人状态代码", `hy_dm` string comment "行业代码", `zcdz` string comment "注册地址", `zcdzxzqhsz_dm` string comment "注册地址行政区划数字代码", `jdxz_dm` string comment "街道乡镇代码", `dwlsgx_dm` string comment "单位隶属关系代码", `gdghlx_dm` string comment "国地管户类型代码", `djjg_dm` string comment "登记机关代码", `djrq` datetime comment "登记日期", `zzjg_dm` string comment "组织机构代码", `kqccsztdjbz` string comment "跨区财产税主体登记标志", `lrr_dm` string comment "录入人代码", `lrrq` datetime comment "录入日期", `xgr_dm` string comment "修改人代码", `xgrq` datetime comment "修改日期", `sjgsdq` string comment "数据归属地区", `zgswj_dm` string comment "主管税务局代码", `zgswskfj_dm` string comment "主管税务所（科、分局）代码", `ssgly_dm` string comment "税收管理员代码", `fjmqybz` string comment "非居民企业标志", `swdjblbz` string comment "税务登记补录标志", `sjtb_sj` datetime comment "数据同步时间||", `nsrbm` string comment "纳税人编号", `yxbz` string comment "有效标志", `shxydm` string comment "社会信用代码", `pgjg_dm` string comment "评估机关代码||评估机关代码", `gszxrq` datetime comment "工商注销日期", `yptetl_sj` string comment "云平台ETL时间", `nsrztlx_dm` string comment "纳税人主体类型代码", `sjblbz` bigint comment "数据剥离标志仅限于数据剥离时使用", `myqybz` string comment "民营企业标志BZ_1", `qyhxlb_dm` string comment "企业划型类别", `qyhxly` string comment "企业划型来源") comment "纳税人基本信息" partitioned by(rfq string comment "日分区", sjlybz string comment "数据来源标记");
+
+-- 如果在脚本中需要，则需要全部列拼接coalesce这里测试我们只获取主键，可以核对即可
+insert overwrite table kf_jc_gszj.hx_dj_dj_nsrxx partition (rfq='cy20201228',sjlybz)
+select * from (select case when startrfq.djxh is null and endrfq.djxh is not null then 'I' when startrfq.djxh is not null and endrfq.djxh is null then 'D' when startrfq.djxh is not null and endrfq.djxh is not null and endrfq.sjtb_sj>startrfq.sjtb_sj then 'U' end as opcode,coalesce(endrfq.djxh,startrfq.djxh) as djxh,endrfq.gdslx_dm,endrfq.ssdabh,endrfq.nsrsbh,endrfq.nsrmc,endrfq.kzztdjlx_dm,endrfq.djzclx_dm,endrfq.fddbrxm,endrfq.fddbrsfzjlx_dm,endrfq.scjydz,endrfq.fddbrsfzjhm,endrfq.scjydzxzqhsz_dm,endrfq.nsrzt_dm,endrfq.hy_dm,endrfq.zcdz,endrfq.zcdzxzqhsz_dm,endrfq.jdxz_dm,endrfq.dwlsgx_dm,endrfq.gdghlx_dm,endrfq.djjg_dm,endrfq.djrq,endrfq.zzjg_dm,endrfq.kqccsztdjbz,endrfq.lrr_dm,endrfq.lrrq,endrfq.xgr_dm,endrfq.xgrq,endrfq.sjgsdq,endrfq.zgswj_dm,endrfq.zgswskfj_dm,endrfq.ssgly_dm,endrfq.fjmqybz,endrfq.swdjblbz,endrfq.sjtb_sj,endrfq.nsrbm,endrfq.yxbz,endrfq.shxydm,endrfq.pgjg_dm,endrfq.gszxrq,endrfq.yptetl_sj,endrfq.nsrztlx_dm,endrfq.sjblbz,endrfq.myqybz,endrfq.qyhxlb_dm,endrfq.qyhxly,coalesce(endrfq.sjlybz,startrfq.sjlybz) as sjlybz from (select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20190831') startrfq full outer join (select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20200531') endrfq on startrfq.djxh=endrfq.djxh and startrfq.sjlybz=endrfq.sjlybz) cymx where cymx.opcode is not null;
+
+--- 数据量  160617817  150718976 有变更的 67444055
+
+
+-- 调用脚本cp到北京云后，进行比对
+
+select count(1) from 
+(select djxh,sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join 
+(select djxh,sjlybz_jz from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz_jz
+where t0.djxh is null or t0.sjlybz_jz is null
+
+差异：33594629
+去重好像并没有什么用：33594623
+
+select t1.opcode,count(distinct t1.djxh) from 
+(select djxh,sjlybz,opcode from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join 
+(select djxh,sjlybz_jz,opcode from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz_jz
+where t0.djxh is null or t0.sjlybz_jz is null
+group by t1.opcode;
+
+
+按照操作类型来查看，好像也没什么作用：
+| U          | 30610741   |
+| I          | 2978803    |
+| D          | 5079      
+
+--- 基础数据去重还是一样
+select count(distinct t1.djxh) from 
+(select djxh,sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228' group by djxh,sjlybz) t1
+left join 
+(select djxh,sjlybz_jz from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222' group by djxh,sjlybz_jz) t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz_jz
+where t0.djxh is null or t0.sjlybz_jz is null
+group by t1.opcode;
+
+-- 抽查几个看看，数据量有点大
+select t1.* from 
+(select djxh,sjlybz,opcode from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join 
+(select djxh,sjlybz_jz,opcode from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz_jz
+where t0.djxh is null or t0.sjlybz_jz is null limit 5;
+
+分别在在线库和南海云进行查看
+select * from hx_dj_dj_nsrxx where djxh in ('10013100001410001277','10013100001410001539','10013100001410001811','10013100001410002651','10013100001410002715');
+select * from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228' and djxh in ('10013100001410001277','10013100001410001539','10013100001410001811','10013100001410002651','10013100001410002715');
+
+数据符合校验规则，但是看到修改人为总局管理员的非常多，所以按修改人核对下
+select case when t1.xgr_dm='00000000000' then 'A' when t1.xgr_dm is null then 'B' else 'C'  end xgrlx,count(1) ts from 
+(select djxh,sjlybz,opcode,xgr_dm from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join 
+(select djxh,sjlybz_jz,opcode,xgr_dm from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz_jz
+where t0.djxh is null or t0.sjlybz_jz is null 
+group by case when t1.xgr_dm='00000000000' then 'A' when t1.xgr_dm is null then 'B' else 'C'  end
+
+| xgrlx      | ts         |
++------------+------------+
+| A          | 17185086   |
+| B          | 338765     |
+| C          | 16070778   |
+从结果可以看到，为空和管理员修改的条数达到了大部分，只有一小半是普通修改的缺失
+
+-- 查看差异分布的月份情况  to_char(coalesce(xgrq,lrrq),'yyyymm')
+
+
+select t1.xgrq,count(1) ts from 
+(select djxh,sjlybz,opcode,to_char(coalesce(xgrq,lrrq),'yyyymm') xgrq from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join
+(select djxh,sjlybz_jz,opcode,to_char(coalesce(xgrq,lrrq),'yyyymm') xgrq from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz_jz
+where t0.djxh is null or t0.sjlybz_jz is null 
+group by t1.xgrq
+
+---------------------------------------  然而结果很郁闷 -----------------------------------------------
+| xgrq       | ts         | 
++------------+------------+
+| NULL       | 5079       | 
+| 197101     | 1          | 
+| 198805     | 1          | 
+| 199101     | 1          | 
+| 199311     | 1          | 
+| 199401     | 1          | 
+| 199501     | 1          | 
+| 199502     | 1          | 
+| 199503     | 1          | 
+| 199605     | 1          | 
+| 199606     | 3          | 
+| 199607     | 135        | 
+| 199608     | 369        | 
+| 199609     | 15         | 
+| 199610     | 37         | 
+| 199611     | 30         | 
+| 199612     | 3          | 
+| 199702     | 3          | 
+| 199703     | 4          | 
+| 199704     | 1          | 
+| 199705     | 1          | 
+| 199706     | 13         | 
+| 199707     | 110        | 
+| 199708     | 6          | 
+| 199709     | 4          | 
+| 199710     | 8          | 
+| 199711     | 9          | 
+| 199712     | 4          | 
+| 199801     | 3          | 
+| 199802     | 3          | 
+| 199803     | 4          | 
+| 199804     | 6          | 
+| 199805     | 4          | 
+| 199806     | 3          | 
+| 199807     | 4          | 
+| 199808     | 12         | 
+| 199809     | 7          | 
+| 199810     | 4          | 
+| 199811     | 1          | 
+| 199812     | 6          | 
+| 199901     | 1          | 
+| 199904     | 107        | 
+| 199905     | 3          | 
+| 199906     | 2          | 
+| 199907     | 3          | 
+| 199908     | 67         | 
+| 199909     | 41         | 
+| 199910     | 73         | 
+| 199911     | 65         | 
+| 199912     | 12         | 
+| 200001     | 3          | 
+| 200002     | 1          | 
+| 200003     | 5          | 
+| 200004     | 14         | 
+| 200005     | 26         | 
+| 200006     | 6          | 
+| 200007     | 14         | 
+| 200008     | 1          | 
+| 200009     | 10         | 
+| 200010     | 1          | 
+| 200011     | 4          | 
+| 200012     | 8          | 
+| 200101     | 3          | 
+| 200102     | 4          | 
+| 200103     | 3          | 
+| 200104     | 11         | 
+| 200105     | 3          | 
+| 200106     | 4          | 
+| 200107     | 16         | 
+| 200108     | 2          | 
+| 200109     | 5          | 
+| 200110     | 4          | 
+| 200111     | 6          | 
+| 200112     | 8          | 
+| 200201     | 9          | 
+| 200202     | 3          | 
+| 200203     | 12         | 
+| 200204     | 15         | 
+| 200205     | 15         | 
+| 200206     | 7          | 
+| 200207     | 5          | 
+| 200208     | 5          | 
+| 200209     | 11         | 
+| 200210     | 3          | 
+| 200211     | 9          | 
+| 200212     | 3          | 
+| 200301     | 3          | 
+| 200302     | 1          | 
+| 200303     | 10         | 
+| 200304     | 5          | 
+| 200305     | 3          | 
+| 200306     | 2          | 
+| 200307     | 7          | 
+| 200308     | 5          | 
+| 200309     | 6          | 
+| 200310     | 9          | 
+| 200311     | 9          | 
+| 200312     | 6          | 
+| 200401     | 15         | 
+| 200402     | 4          | 
+| 200403     | 12         | 
+| 200404     | 7          | 
+| 200405     | 12         | 
+| 200406     | 18         | 
+| 200407     | 7          | 
+| 200408     | 4          | 
+| 200409     | 2          | 
+| 200410     | 5          | 
+| 200411     | 48         | 
+| 200412     | 3          | 
+| 200501     | 27         | 
+| 200502     | 1          | 
+| 200503     | 4          | 
+| 200504     | 10         | 
+| 200505     | 29         | 
+| 200506     | 27         | 
+| 200507     | 7          | 
+| 200508     | 675        | 
+| 200509     | 27         | 
+| 200510     | 14         | 
+| 200511     | 25         | 
+| 200512     | 22         | 
+| 200601     | 7          | 
+| 200602     | 8          | 
+| 200603     | 2          | 
+| 200604     | 20         | 
+| 200605     | 5          | 
+| 200606     | 10         | 
+| 200607     | 6          | 
+| 200608     | 29         | 
+| 200609     | 68         | 
+| 200610     | 8          | 
+| 200611     | 59         | 
+| 200612     | 25         | 
+| 200701     | 8          | 
+| 200702     | 6          | 
+| 200703     | 62         | 
+| 200704     | 17         | 
+| 200705     | 34         | 
+| 200706     | 8          | 
+| 200707     | 20         | 
+| 200708     | 20         | 
+| 200709     | 31         | 
+| 200710     | 34         | 
+| 200711     | 8          | 
+| 200712     | 21         | 
+| 200801     | 60         | 
+| 200802     | 5          | 
+| 200803     | 7          | 
+| 200804     | 27         | 
+| 200805     | 14         | 
+| 200806     | 5          | 
+| 200807     | 13         | 
+| 200808     | 37         | 
+| 200809     | 6          | 
+| 200810     | 12         | 
+| 200811     | 10         | 
+| 200812     | 23         | 
+| 200901     | 4          | 
+| 200902     | 1          | 
+| 200903     | 15         | 
+| 200904     | 10         | 
+| 200905     | 19         | 
+| 200906     | 7          | 
+| 200907     | 16         | 
+| 200908     | 44         | 
+| 200909     | 17         | 
+| 200910     | 57         | 
+| 200911     | 16         | 
+| 200912     | 31         | 
+| 201001     | 4          | 
+| 201002     | 5          | 
+| 201003     | 13         | 
+| 201004     | 24         | 
+| 201005     | 26         | 
+| 201006     | 9          | 
+| 201007     | 12         | 
+| 201008     | 13         | 
+| 201009     | 13         | 
+| 201010     | 3          | 
+| 201011     | 22         | 
+| 201012     | 7          | 
+| 201101     | 15         | 
+| 201102     | 4          | 
+| 201103     | 12         | 
+| 201104     | 61         | 
+| 201105     | 44         | 
+| 201106     | 20         | 
+| 201107     | 15         | 
+| 201108     | 13         | 
+| 201109     | 28         | 
+| 201110     | 17         | 
+| 201111     | 27         | 
+| 201112     | 23         | 
+| 201201     | 1945       | 
+| 201202     | 47         | 
+| 201203     | 66         | 
+| 201204     | 64         | 
+| 201205     | 79         | 
+| 201206     | 47         | 
+| 201207     | 57         | 
+| 201208     | 88         | 
+| 201209     | 101        | 
+| 201210     | 85         | 
+| 201211     | 95         | 
+| 201212     | 64         | 
+| 201301     | 98         | 
+| 201302     | 288        | 
+| 201303     | 58         | 
+| 201304     | 47         | 
+| 201305     | 104        | 
+| 201306     | 78         | 
+| 201307     | 70         | 
+| 201308     | 82         | 
+| 201309     | 95         | 
+| 201310     | 55         | 
+| 201311     | 127        | 
+| 201312     | 171        | 
+| 201401     | 280        | 
+| 201402     | 97         | 
+| 201403     | 197        | 
+| 201404     | 162        | 
+| 201405     | 117        | 
+| 201406     | 105        | 
+| 201407     | 95         | 
+| 201408     | 187        | 
+| 201409     | 169        | 
+| 201410     | 261        | 
+| 201411     | 191        | 
+| 201412     | 171        | 
+| 201501     | 80         | 
+| 201502     | 81         | 
+| 201503     | 85         | 
+| 201504     | 101        | 
+| 201505     | 134        | 
+| 201506     | 162        | 
+| 201507     | 100        | 
+| 201508     | 134        | 
+| 201509     | 2128       | 
+| 201510     | 95         | 
+| 201511     | 241        | 
+| 201512     | 353        | 
+| 201601     | 200        | 
+| 201602     | 149        | 
+| 201603     | 173        | 
+| 201604     | 335        | 
+| 201605     | 177        | 
+| 201606     | 195        | 
+| 201607     | 305        | 
+| 201608     | 358        | 
+| 201609     | 201        | 
+| 201610     | 338        | 
+| 201611     | 2171       | 
+| 201612     | 2252       | 
+| 201701     | 383        | 
+| 201702     | 438        | 
+| 201703     | 856        | 
+| 201704     | 454        | 
+| 201705     | 572        | 
+| 201706     | 816        | 
+| 201707     | 419        | 
+| 201708     | 1004       | 
+| 201709     | 4736       | 
+| 201710     | 813        | 
+| 201711     | 1103       | 
+| 201712     | 1040       | 
+| 201801     | 44024      | 
+| 201802     | 1081       | 
+| 201803     | 3558       | 
+| 201804     | 1665       | 
+| 201805     | 2133       | 
+| 201806     | 1720       | 
+| 201807     | 2740       | 
+| 201808     | 1818       | 
+| 201809     | 3942       | 
+| 201810     | 29748      | 
+| 201811     | 41963      | 
+| 201812     | 32426      | 
+| 201901     | 21135      | 
+| 201902     | 24952      | 
+| 201903     | 994966     | 
+| 201904     | 1052973    | 
+| 201905     | 938763     | 
+| 201906     | 1813898    | 
+| 201907     | 1008051    | 
+| 201908     | 10954050   | 
+| 201909     | 8044972    | 
+| 201910     | 1870674    | 
+| 201911     | 2406028    | 
+| 201912     | 2519112    | 
+| 202001     | 1548874    | 
+| 202002     | 30236      | 
+| 202003     | 148426     | 
+| 202004     | 12468      | 
+| 202012     | 2          |
+
+-- 从结果可以说明，除了12月这两个异常的脏数据，5月开始应该是不存在的，可以认为是从四月底恢复了正常，有几千条为空的，我们来验证下原数据是否为空
+select count(1) from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228' and xgrq is null and lrrq is null         --- 5089 基本吻合，脏数据的第二个类型，这种数据绝对是有问题的，除了登记序号和数据来源标志全部是空的
+后期我们需要处理的话就是2019年9月到2020年5月，之前的差异他们已经初始化过
+
+
+-----------------------------------  全量匹配 ----------------------------------------
+首先需要对更新数据进行同主键操作的唯一性,结果还是一致，其实这一步也能理解，毕竟只有两个分区比较，确实不会产生多次变更，所以代码里这一步就可以省略了
+
+insert overwrite table kf_jc_gszj.hx_dj_dj_nsrxx partition (rfq='qc20201228',sjlybz)
+select opcode
+,djxh
+,gdslx_dm
+,ssdabh
+,nsrsbh
+,nsrmc
+,kzztdjlx_dm
+,djzclx_dm
+,fddbrxm
+,fddbrsfzjlx_dm
+,scjydz
+,fddbrsfzjhm
+,scjydzxzqhsz_dm
+,nsrzt_dm
+,hy_dm
+,zcdz
+,zcdzxzqhsz_dm
+,jdxz_dm
+,dwlsgx_dm
+,gdghlx_dm
+,djjg_dm
+,djrq
+,zzjg_dm
+,kqccsztdjbz
+,lrr_dm
+,lrrq
+,xgr_dm
+,xgrq
+,sjgsdq
+,zgswj_dm
+,zgswskfj_dm
+,ssgly_dm
+,fjmqybz
+,swdjblbz
+,sjtb_sj
+,nsrbm
+,yxbz
+,shxydm
+,pgjg_dm
+,gszxrq
+,yptetl_sj
+,nsrztlx_dm
+,sjblbz
+,myqybz
+,qyhxlb_dm
+,qyhxly
+,sjlybz
+from (select *,row_number() over (partition by djxh,sjlybz,opcode order by xgrq,lrrq,sjtb_sj desc) rn
+from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') mx where rn =1;
+
+-------  套用主键比对脚本进行全量比对，全量列以t0为基准，数据以t1为基准 -------------------
+select count(1) from 
+(select * from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join 
+(select * from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t0.djxh = t1.djxh and
+t0.gdslx_dm  =t1.gdslx_dm and
+t0.ssdabh = t1.ssdabh and
+t0.nsrsbh = t1.nsrsbh and
+t0.nsrmc = t1.nsrmc and
+t0.kzztdjlx_dm = t1.kzztdjlx_dm and
+t0.djzclx_dm = t1.djzclx_dm and
+t0.fddbrxm = t1.fddbrxm and
+t0.fddbrsfzjlx_dm = t1.fddbrsfzjlx_dm and
+t0.scjydz = t1.scjydz and
+t0.fddbrsfzjhm = t1.fddbrsfzjhm and
+t0.scjydzxzqhsz_dm = t1.scjydzxzqhsz_dm and
+t0.nsrzt_dm = t1.nsrzt_dm and
+t0.hy_dm = t1.hy_dm and
+t0.zcdz = t1.zcdz and
+t0.zcdzxzqhsz_dm = t1.zcdzxzqhsz_dm and
+t0.jdxz_dm = t1.jdxz_dm and
+t0.dwlsgx_dm = t1.dwlsgx_dm and
+t0.gdghlx_dm = t1.gdghlx_dm and
+t0.djjg_dm = t1.djjg_dm and
+t0.zzjg_dm = t1.zzjg_dm and
+t0.kqccsztdjbz = t1.kqccsztdjbz and
+t0.lrr_dm = t1.lrr_dm and
+t0.xgr_dm = t1.xgr_dm and
+t0.sjgsdq = t1.sjgsdq and
+t0.zgswj_dm = t1.zgswj_dm and
+t0.zgswskfj_dm = t1.zgswskfj_dm and
+t0.ssgly_dm = t1.ssgly_dm and
+t0.fjmqybz = t1.fjmqybz and
+t0.swdjblbz = t1.swdjblbz and
+t0.nsrbm = t1.nsrbm and
+t0.yxbz = t1.yxbz and
+t0.shxydm = t1.shxydm and
+t0.pgjg_dm = t1.pgjg_dm and
+t0.nsrztlx_dm = t1.nsrztlx_dm and
+t0.sjblbz = t1.sjblbz and
+t0.myqybz = t1.myqybz and
+t0.sjlybz_jz = t1.sjlybz
+where t0.djxh is null or t0.sjlybz_jz is null
+
+-- 这个时候发现全部关联不上，于是删除所有日期字段防止是日期格式的问题，结果问题依然，删除了一些地址存储汉字的字段依旧是没有关联到，于是只能挑两条数据看下，是否真实有差异
+| 10013100001430001314 | 1          | 12110001001430001314 | 310043607368469 | 富邦华一银行有限公司 | 1110        | 210        | 马立新        | 201            | 上海市浦东新区世纪大道1168号A座1楼、18楼、19楼及20楼 | 330106196611040034 | 310115          | 03         | 6621       | 中国（上海）自由贸易试验区世纪大道1168号A座101室、18楼、19楼及20楼 | 310115        | 310115005  | 90         | 3          | 13100434600 | 1997-03-20 00:00:00 | 607368469  | N           | 13100430000 | 2000-01-01 00:00:00 | 00000000000 | 2020-11-06 17:33:27 | 13100434600 | 13100430000 | 13100434600 | 13100430014 | N          | Y          | 2020-11-06 19:33:46 | 310043430302176 | Y          | 913100006073684694 | NULL       | NULL       | NULL       | NULL       | NULL       | SHST       
+| 10013100001430001314 | 1          | 12110001001430001314 | 310043607368469 | 富邦华一银行有限公司 | 1110         | 210        | 马立新        | 201             | 上海市浦东新区世纪大道1168号A座1楼、18楼、19楼及20楼 | 330106196611040034 | 310115           | 03         | 6621       | 中国（上海）自由贸易试验区世纪大道1168号A座101室、18楼、19楼及20楼 | 310115         | 310115005  | 90         | 3          | 13100434600 | 1997-03-20 00:00:00 | 607368469  | N            | 13100430000 | 2000-01-01 00:00:00 | 13100wsbs00 | 2019-08-08 15:55:17 | 13100434600 | 13100430000 | 13100434600  | 13100430014 | N          | Y          | 2019-08-08 15:55:20 | 310043430302176 | Y          | 913100006073684694 | NULL       | NULL       | NULL        | NULL       | NULL       | SHST       | 
+
+
+| 10013100001430002007 | 1          | 12110001001430002007 | 310043832242491 | 中国工商银行股份有限公司上海市国定路支行 | 1110        | 161        | 彭正发        | 201            | 上海市杨浦区国定路600弄16号甲/19号乙/19号丙 | 310110196202090859 | 310110          | 03         | 6621       | 上海市杨浦区国定路600弄16号甲/19号乙/19号丙 | 310110        | 310110000  | 10         | 3          | 13100434300 | 1984-01-01 00:00:00 | 832242491  | N           | 13100430000 | 1998-10-20 00:00:00 | · | 2020-11-06 17:25:14 | 13100434300 | 13100430000 | 13100434300 | 13100430328 | N          | Y          | 2020-11-06 19:26:21 | 310043430301769 | Y          | 91310110832242491K | NULL       | NULL       | NULL       | NULL       | NULL       | SHST       
+| 10013100001430002007 | 1          | 12110001001430002007 | 310043832242491 | 中国工商银行股份有限公司上海市国定路支行 | 1110         | 161        | 彭正发        | 201             | 上海市杨浦区国定路600弄16号甲/19号乙/19号丙 | 310110196202090859 | 310110           | 03         | 6621       | 上海市杨浦区国定路600弄16号甲/19号乙/19号丙 | 310110         | 310110000  | 10         | 3          | 13100434300 | 1984-01-01 00:00:00 | 832242491  | N            | 13100430000 | 1998-10-20 00:00:00 | 13100430306 | 2019-12-30 10:51:40 | 13100434300 | 13100430000 | 13100434300  | 13100430062 | N          | Y          | 2019-12-30 10:51:43 | 310043430301769 | Y          | 91310110832242491K | NULL       | NULL       | NULL        | NULL       | NULL       | SHST       | 
+
+# 通过实际查看，确实存在问题，虽然有的是修改日期以及修改人，税收管理员这些和业务关联不是很重要的字段，但是确实是不一样
+
+--- 为了验证，我们抽取10号群里刚提出问题修复后的数据 djxh ='10113205010000457123'   18号  djxh='10216101000000027442'   djxh in ('10113205010000457123','10216101000000027442'),这里面都会存在null 和nu 以及和''的区别
+
+| 10113205010000457123 | 1          | 91320506MA1X4M7N33 | 91320506MA1X4M7N33 | 苏州金吉杨装饰工程有限公司 | 1110        | 173        | 徐建海        | 201            | 苏州市东环路1625号201室 | 32102319821002645X | 320508          | 03         | 4999       | 苏州市东环路1625号201室 | 320508        | 320508008  | 51         | 1          | 13205110200 | 2018-08-31 00:00:00 | A1X4M7N33  | N           | 13205730293 | 2018-09-12 08:55:37 | 13205710761 | 2020-03-31 14:42:27 | 13205111900 | 13205110000 | 13205111900 | NULL       | N          | Y          | 2020-03-31 14:42:29 | NULL       | Y          | 91320506MA1X4M7N33 | 13205101500 | NULL       | NU         | 0          | 000000000037 | JSST       
+| 10113205010000457123 | 1          | 91320506MA1X4M7N33 | 91320506MA1X4M7N33 | 苏州金吉杨装饰工程有限公司 | 1110         | 173        | 徐建海        | 201             | 苏州市东环路1625号201室 | 32102319821002645X | 320508           | 03         | 4999       | 苏州市东环路1625号201室 | 320508         | 320508008  | 51         | 1          | 13205110200 | 2018-08-31 00:00:00 | A1X4M7N33  | N            | 13205730293 | 2018-09-12 08:55:37 | 13205710761 | 2020-03-31 14:42:27 | 13205111900 | 13205110000 | 13205111900  | NULL       | N          | Y          | 2020-03-31 14:42:29 | NULL       | Y          | 91320506MA1X4M7N33 | 13205101500 | NULL       | NULL        | 0          | 000000000037 | JSST       | 
+
+| 10216101000000027442 | 1          | 91610104MA6WEUDP2N | 91610104MA6WEUDP2N | 河北广安防雷科技有限公司陕西分公司 | 1110        | 159        | 鲁昌         | 201            | 陕西省西安市雁塔区朱雀大街58号金水大厦1栋1单元2016室 | 152822197708140518 | 610113          | 03         | 7410       | 陕西省西安市雁塔区朱雀大街58号金水大厦1栋1单元2016室 | 610113        | 610113004  | 51         | 1          | 16101131400 | 2019-03-06 00:00:00 | MA6WEUDP2  | N           | 161nfzc0000 | 2019-03-06 11:19:27 | 56101913004 | 2020-03-31 11:48:27 | 16101134700 | 16101130000 | 16101134700 | 26100011659 | N          | Y          | 2020-03-31 11:48:31 | NULL       | Y          | 91610104MA6WEUDP2N | NULL       | NULL       | NU         |            | 000000000037 | SNST       
+| 10216101000000027442 | 1          | 91610104MA6WEUDP2N | 91610104MA6WEUDP2N | 河北广安防雷科技有限公司陕西分公司 | 1110         | 159        | 鲁昌         | 201             | 陕西省西安市雁塔区朱雀大街58号金水大厦1栋1单元2016室 | 152822197708140518 | 610113           | 03         | 7410       | 陕西省西安市雁塔区朱雀大街58号金水大厦1栋1单元2016室 | 610113         | 610113004  | 51         | 1          | 16101131400 | 2019-03-06 00:00:00 | MA6WEUDP2  | N            | 161nfzc0000 | 2019-03-06 11:19:27 | 56101913004 | 2020-03-31 11:48:27 | 16101134700 | 16101130000 | 16101134700  | 26100011659 | N          | Y          | 2020-03-31 11:48:31 | NULL       | Y          | 91610104MA6WEUDP2N | NULL       | NULL       | NULL        | NULL       | 000000000037 | SNST       |
+
+-- 发现后面修复过的数据基本都是倒数2-6这5个列有问题，如果在除去修改人和修改日期来看下
+67444055-66049747=1394308
+67444055-65745130=1698925
+-- 和总数相比，占比很小
+
+-- 先处理一定的格式，在来比较，
+1 预处理异常，1.1 所有列trim() 去除空格干扰，1.2 将值是nu的处理为null
+2 根据数据类型将数据的null处理为该类型的默认值
+拼接好之后运行效率非常的慢，用shell挂在后台跑
+
+sql="select count(1) from (select coalesce(decode(trim(djxh),'nu',''),'') djxh,coalesce(decode(trim(gdslx_dm),'nu',''),'') gdslx_dm,coalesce(decode(trim(ssdabh),'nu',''),'') ssdabh,coalesce(decode(trim(nsrsbh),'nu',''),'') nsrsbh,coalesce(decode(trim(nsrmc),'nu',''),'') nsrmc,coalesce(decode(trim(kzztdjlx_dm),'nu',''),'') kzztdjlx_dm,coalesce(decode(trim(djzclx_dm),'nu',''),'') djzclx_dm,coalesce(decode(trim(fddbrxm),'nu',''),'') fddbrxm,coalesce(decode(trim(fddbrsfzjlx_dm),'nu',''),'') fddbrsfzjlx_dm,coalesce(decode(trim(scjydz),'nu',''),'') scjydz,coalesce(decode(trim(fddbrsfzjhm),'nu',''),'') fddbrsfzjhm,coalesce(decode(trim(scjydzxzqhsz_dm),'nu',''),'') scjydzxzqhsz_dm,coalesce(decode(trim(nsrzt_dm),'nu',''),'') nsrzt_dm,coalesce(decode(trim(hy_dm),'nu',''),'') hy_dm,coalesce(decode(trim(zcdz),'nu',''),'') zcdz,coalesce(decode(trim(zcdzxzqhsz_dm),'nu',''),'') zcdzxzqhsz_dm,coalesce(decode(trim(jdxz_dm),'nu',''),'') jdxz_dm,coalesce(decode(trim(dwlsgx_dm),'nu',''),'') dwlsgx_dm,coalesce(decode(trim(gdghlx_dm),'nu',''),'') gdghlx_dm,coalesce(decode(trim(djjg_dm),'nu',''),'') djjg_dm,coalesce(to_date(trim(djrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss'))    djrq,coalesce(decode(trim(zzjg_dm),'nu',''),'') zzjg_dm,coalesce(decode(trim(kqccsztdjbz),'nu',''),'') kqccsztdjbz,coalesce(decode(trim(lrr_dm),'nu',''),'') lrr_dm,coalesce(to_date(trim(lrrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) lrrq,coalesce(decode(trim(xgr_dm),'nu',''),'') xgr_dm,coalesce(to_date(trim(xgrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) xgrq,coalesce(decode(trim(sjgsdq),'nu',''),'') sjgsdq,coalesce(decode(trim(zgswj_dm),'nu',''),'') zgswj_dm,coalesce(decode(trim(zgswskfj_dm),'nu',''),'') zgswskfj_dm,coalesce(decode(trim(ssgly_dm),'nu',''),'') ssgly_dm,coalesce(decode(trim(fjmqybz),'nu',''),'') fjmqybz,coalesce(decode(trim(swdjblbz),'nu',''),'') swdjblbz,coalesce(to_date(trim(sjtb_sj),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) sjtb_sj,coalesce(decode(trim(nsrbm),'nu',''),'') nsrbm,coalesce(decode(trim(yxbz),'nu',''),'') yxbz,coalesce(decode(trim(shxydm),'nu',''),'') shxydm,coalesce(decode(trim(pgjg_dm),'nu',''),'') pgjg_dm,coalesce(to_date(trim(gszxrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) gszxrq,coalesce(decode(trim(nsrztlx_dm),'nu',''),'') nsrztlx_dm,coalesce(decode(trim(sjblbz),'nu',''),'') sjblbz,coalesce(decode(trim(myqybz),'nu',''),'') myqybz,coalesce(decode(trim(sjlybz),'nu',''),'') sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1 left join (select coalesce(decode(trim(djxh),'nu',''),'') djxh,coalesce(decode(trim(gdslx_dm),'nu',''),'') gdslx_dm,coalesce(decode(trim(ssdabh),'nu',''),'') ssdabh,coalesce(decode(trim(nsrsbh),'nu',''),'') nsrsbh,coalesce(decode(trim(nsrmc),'nu',''),'') nsrmc,coalesce(decode(trim(kzztdjlx_dm),'nu',''),'') kzztdjlx_dm,coalesce(decode(trim(djzclx_dm),'nu',''),'') djzclx_dm,coalesce(decode(trim(fddbrxm),'nu',''),'') fddbrxm,coalesce(decode(trim(fddbrsfzjlx_dm),'nu',''),'') fddbrsfzjlx_dm,coalesce(decode(trim(scjydz),'nu',''),'') scjydz,coalesce(decode(trim(fddbrsfzjhm),'nu',''),'') fddbrsfzjhm,coalesce(decode(trim(scjydzxzqhsz_dm),'nu',''),'') scjydzxzqhsz_dm,coalesce(decode(trim(nsrzt_dm),'nu',''),'') nsrzt_dm,coalesce(decode(trim(hy_dm),'nu',''),'') hy_dm,coalesce(decode(trim(zcdz),'nu',''),'') zcdz,coalesce(decode(trim(zcdzxzqhsz_dm),'nu',''),'') zcdzxzqhsz_dm,coalesce(decode(trim(jdxz_dm),'nu',''),'') jdxz_dm,coalesce(decode(trim(dwlsgx_dm),'nu',''),'') dwlsgx_dm,coalesce(decode(trim(gdghlx_dm),'nu',''),'') gdghlx_dm,coalesce(decode(trim(djjg_dm),'nu',''),'') djjg_dm,coalesce(to_date(trim(djrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss'))    djrq,coalesce(decode(trim(zzjg_dm),'nu',''),'') zzjg_dm,coalesce(decode(trim(kqccsztdjbz),'nu',''),'') kqccsztdjbz,coalesce(decode(trim(lrr_dm),'nu',''),'') lrr_dm,coalesce(to_date(trim(lrrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) lrrq,coalesce(decode(trim(xgr_dm),'nu',''),'') xgr_dm,coalesce(to_date(trim(xgrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) xgrq,coalesce(decode(trim(sjgsdq),'nu',''),'') sjgsdq,coalesce(decode(trim(zgswj_dm),'nu',''),'') zgswj_dm,coalesce(decode(trim(zgswskfj_dm),'nu',''),'') zgswskfj_dm,coalesce(decode(trim(ssgly_dm),'nu',''),'') ssgly_dm,coalesce(decode(trim(fjmqybz),'nu',''),'') fjmqybz,coalesce(decode(trim(swdjblbz),'nu',''),'') swdjblbz,coalesce(to_date(trim(sjtb_sj),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) sjtb_sj,coalesce(decode(trim(nsrbm),'nu',''),'') nsrbm,coalesce(decode(trim(yxbz),'nu',''),'') yxbz,coalesce(decode(trim(shxydm),'nu',''),'') shxydm,coalesce(decode(trim(pgjg_dm),'nu',''),'') pgjg_dm,coalesce(to_date(trim(gszxrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) gszxrq,coalesce(decode(trim(nsrztlx_dm),'nu',''),'') nsrztlx_dm,coalesce(decode(trim(sjblbz),'nu',''),'') sjblbz,coalesce(decode(trim(myqybz),'nu',''),'') myqybz,coalesce(decode(trim(sjlybz_jz),'nu',''),'') sjlybz from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0 on t0.djxh = t1.djxh and t0.gdslx_dm  =t1.gdslx_dm and t0.ssdabh = t1.ssdabh and t0.nsrsbh = t1.nsrsbh and t0.nsrmc = t1.nsrmc and t0.kzztdjlx_dm = t1.kzztdjlx_dm and t0.djzclx_dm = t1.djzclx_dm and t0.fddbrxm = t1.fddbrxm and t0.fddbrsfzjlx_dm = t1.fddbrsfzjlx_dm and t0.scjydz = t1.scjydz and t0.fddbrsfzjhm = t1.fddbrsfzjhm and t0.scjydzxzqhsz_dm = t1.scjydzxzqhsz_dm and t0.nsrzt_dm = t1.nsrzt_dm and t0.hy_dm = t1.hy_dm and t0.zcdz = t1.zcdz and t0.zcdzxzqhsz_dm = t1.zcdzxzqhsz_dm and t0.jdxz_dm = t1.jdxz_dm and t0.dwlsgx_dm = t1.dwlsgx_dm and t0.gdghlx_dm = t1.gdghlx_dm and t0.djjg_dm = t1.djjg_dm and t0.zzjg_dm = t1.zzjg_dm and t0.kqccsztdjbz = t1.kqccsztdjbz and t0.lrr_dm = t1.lrr_dm and t0.sjgsdq = t1.sjgsdq and t0.zgswj_dm = t1.zgswj_dm and t0.zgswskfj_dm = t1.zgswskfj_dm and t0.ssgly_dm = t1.ssgly_dm and t0.fjmqybz = t1.fjmqybz and t0.swdjblbz = t1.swdjblbz and t0.nsrbm = t1.nsrbm and t0.yxbz = t1.yxbz and t0.shxydm = t1.shxydm and t0.sjlybz = t1.sjlybz where t0.djxh is null or t0.sjlybz is null;"
+
+nohup odpscmd --project=kf_jc_gszj -e "${sql}" 2>&1 >cysl.txt &
+
+
+----------------------------------   上面sql有些异常情况未处理，修改为 ------------------------------------------
+-- 查看关联总数情况
+sql="select count(1) from (select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(gdslx_dm),'nu','','NU','',gdslx_dm),'') gdslx_dm,coalesce(decode(trim(ssdabh),'nu','','NU','',ssdabh),'') ssdabh,coalesce(decode(trim(nsrsbh),'nu','','NU','',nsrsbh),'') nsrsbh,coalesce(decode(trim(nsrmc),'nu','','NU','',nsrmc),'') nsrmc,coalesce(decode(trim(kzztdjlx_dm),'nu','','NU','',kzztdjlx_dm),'') kzztdjlx_dm,coalesce(decode(trim(djzclx_dm),'nu','','NU','',djzclx_dm),'') djzclx_dm,coalesce(decode(trim(fddbrxm),'nu','','NU','',fddbrxm),'') fddbrxm,coalesce(decode(trim(fddbrsfzjlx_dm),'nu','','NU','',fddbrsfzjlx_dm),'') fddbrsfzjlx_dm,coalesce(decode(trim(scjydz),'nu','','NU','',scjydz),'') scjydz,coalesce(decode(trim(fddbrsfzjhm),'nu','','NU','',fddbrsfzjhm),'') fddbrsfzjhm,coalesce(decode(trim(scjydzxzqhsz_dm),'nu','','NU','',scjydzxzqhsz_dm),'') scjydzxzqhsz_dm,coalesce(decode(trim(nsrzt_dm),'nu','','NU','',nsrzt_dm),'') nsrzt_dm,coalesce(decode(trim(hy_dm),'nu','','NU','',hy_dm),'') hy_dm,coalesce(decode(trim(zcdz),'nu','','NU','',zcdz),'') zcdz,coalesce(decode(trim(zcdzxzqhsz_dm),'nu','','NU','',zcdzxzqhsz_dm),'') zcdzxzqhsz_dm,coalesce(decode(trim(jdxz_dm),'nu','','NU','',jdxz_dm),'') jdxz_dm,coalesce(decode(trim(dwlsgx_dm),'nu','','NU','',dwlsgx_dm),'') dwlsgx_dm,coalesce(decode(trim(gdghlx_dm),'nu','','NU','',gdghlx_dm),'') gdghlx_dm,coalesce(decode(trim(djjg_dm),'nu','','NU','',djjg_dm),'') djjg_dm,coalesce(to_date(trim(djrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) djrq,coalesce(decode(trim(zzjg_dm),'nu','','NU','',zzjg_dm),'') zzjg_dm,coalesce(decode(trim(kqccsztdjbz),'nu','','NU','',kqccsztdjbz),'') kqccsztdjbz,coalesce(decode(trim(lrr_dm),'nu','','NU','',lrr_dm),'') lrr_dm,coalesce(to_date(trim(lrrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) lrrq,coalesce(decode(trim(xgr_dm),'nu','','NU','',xgr_dm),'') xgr_dm,coalesce(to_date(trim(xgrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) xgrq,coalesce(decode(trim(sjgsdq),'nu','','NU','',sjgsdq),'') sjgsdq,coalesce(decode(trim(zgswj_dm),'nu','','NU','',zgswj_dm),'') zgswj_dm,coalesce(decode(trim(zgswskfj_dm),'nu','','NU','',zgswskfj_dm),'') zgswskfj_dm,coalesce(decode(trim(ssgly_dm),'nu','','NU','',ssgly_dm),'') ssgly_dm,coalesce(decode(trim(fjmqybz),'nu','','NU','',fjmqybz),'') fjmqybz,coalesce(decode(trim(swdjblbz),'nu','','NU','',swdjblbz),'') swdjblbz,coalesce(to_date(trim(sjtb_sj),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) sjtb_sj,coalesce(decode(trim(nsrbm),'nu','','NU','',nsrbm),'') nsrbm,coalesce(decode(trim(yxbz),'nu','','NU','',yxbz),'') yxbz,coalesce(decode(trim(shxydm),'nu','','NU','',shxydm),'') shxydm,coalesce(decode(trim(pgjg_dm),'nu','','NU','',pgjg_dm),'') pgjg_dm,coalesce(to_date(trim(gszxrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) gszxrq,coalesce(decode(trim(nsrztlx_dm),'nu','','NU','',nsrztlx_dm),'') nsrztlx_dm,coalesce(trim(sjblbz),0) sjblbz,coalesce(decode(trim(myqybz),'nu','','NU','',myqybz),'') myqybz,coalesce(decode(trim(sjlybz),'nu','','NU','',sjlybz),'') sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1 left join (select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(gdslx_dm),'nu','','NU','',gdslx_dm),'') gdslx_dm,coalesce(decode(trim(ssdabh),'nu','','NU','',ssdabh),'') ssdabh,coalesce(decode(trim(nsrsbh),'nu','','NU','',nsrsbh),'') nsrsbh,coalesce(decode(trim(nsrmc),'nu','','NU','',nsrmc),'') nsrmc,coalesce(decode(trim(kzztdjlx_dm),'nu','','NU','',kzztdjlx_dm),'') kzztdjlx_dm,coalesce(decode(trim(djzclx_dm),'nu','','NU','',djzclx_dm),'') djzclx_dm,coalesce(decode(trim(fddbrxm),'nu','','NU','',fddbrxm),'') fddbrxm,coalesce(decode(trim(fddbrsfzjlx_dm),'nu','','NU','',fddbrsfzjlx_dm),'') fddbrsfzjlx_dm,coalesce(decode(trim(scjydz),'nu','','NU','',scjydz),'') scjydz,coalesce(decode(trim(fddbrsfzjhm),'nu','','NU','',fddbrsfzjhm),'') fddbrsfzjhm,coalesce(decode(trim(scjydzxzqhsz_dm),'nu','','NU','',scjydzxzqhsz_dm),'') scjydzxzqhsz_dm,coalesce(decode(trim(nsrzt_dm),'nu','','NU','',nsrzt_dm),'') nsrzt_dm,coalesce(decode(trim(hy_dm),'nu','','NU','',hy_dm),'') hy_dm,coalesce(decode(trim(zcdz),'nu','','NU','',zcdz),'') zcdz,coalesce(decode(trim(zcdzxzqhsz_dm),'nu','','NU','',zcdzxzqhsz_dm),'') zcdzxzqhsz_dm,coalesce(decode(trim(jdxz_dm),'nu','','NU','',jdxz_dm),'') jdxz_dm,coalesce(decode(trim(dwlsgx_dm),'nu','','NU','',dwlsgx_dm),'') dwlsgx_dm,coalesce(decode(trim(gdghlx_dm),'nu','','NU','',gdghlx_dm),'') gdghlx_dm,coalesce(decode(trim(djjg_dm),'nu','','NU','',djjg_dm),'') djjg_dm,coalesce(to_date(trim(djrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) djrq,coalesce(decode(trim(zzjg_dm),'nu','','NU','',zzjg_dm),'') zzjg_dm,coalesce(decode(trim(kqccsztdjbz),'nu','','NU','',kqccsztdjbz),'') kqccsztdjbz,coalesce(decode(trim(lrr_dm),'nu','','NU','',lrr_dm),'') lrr_dm,coalesce(to_date(trim(lrrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) lrrq,coalesce(decode(trim(xgr_dm),'nu','','NU','',xgr_dm),'') xgr_dm,coalesce(to_date(trim(xgrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) xgrq,coalesce(decode(trim(sjgsdq),'nu','','NU','',sjgsdq),'') sjgsdq,coalesce(decode(trim(zgswj_dm),'nu','','NU','',zgswj_dm),'') zgswj_dm,coalesce(decode(trim(zgswskfj_dm),'nu','','NU','',zgswskfj_dm),'') zgswskfj_dm,coalesce(decode(trim(ssgly_dm),'nu','','NU','',ssgly_dm),'') ssgly_dm,coalesce(decode(trim(fjmqybz),'nu','','NU','',fjmqybz),'') fjmqybz,coalesce(decode(trim(swdjblbz),'nu','','NU','',swdjblbz),'') swdjblbz,coalesce(to_date(trim(sjtb_sj),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) sjtb_sj,coalesce(decode(trim(nsrbm),'nu','','NU','',nsrbm),'') nsrbm,coalesce(decode(trim(yxbz),'nu','','NU','',yxbz),'') yxbz,coalesce(decode(trim(shxydm),'nu','','NU','',shxydm),'') shxydm,coalesce(decode(trim(pgjg_dm),'nu','','NU','',pgjg_dm),'') pgjg_dm,coalesce(to_date(trim(gszxrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) gszxrq,coalesce(decode(trim(nsrztlx_dm),'nu','','NU','',nsrztlx_dm),'') nsrztlx_dm,coalesce(decode(trim(sjblbz),'nu','','NU','','','0',sjblbz),'0') sjblbz,coalesce(decode(trim(myqybz),'nu','','NU','',myqybz),'') myqybz,coalesce(decode(trim(sjlybz_jz),'nu','','NU','',sjlybz_jz),'') sjlybz from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0 on t0.djxh = t1.djxh and t0.gdslx_dm  =t1.gdslx_dm and t0.ssdabh = t1.ssdabh and t0.nsrsbh = t1.nsrsbh and t0.nsrmc = t1.nsrmc and t0.kzztdjlx_dm = t1.kzztdjlx_dm and t0.djzclx_dm = t1.djzclx_dm and t0.fddbrxm = t1.fddbrxm and t0.fddbrsfzjlx_dm = t1.fddbrsfzjlx_dm and t0.scjydz = t1.scjydz and t0.fddbrsfzjhm = t1.fddbrsfzjhm and t0.scjydzxzqhsz_dm = t1.scjydzxzqhsz_dm and t0.nsrzt_dm = t1.nsrzt_dm and t0.hy_dm = t1.hy_dm and t0.zcdz = t1.zcdz and t0.zcdzxzqhsz_dm = t1.zcdzxzqhsz_dm and t0.jdxz_dm = t1.jdxz_dm and t0.dwlsgx_dm = t1.dwlsgx_dm and t0.gdghlx_dm = t1.gdghlx_dm and t0.djjg_dm = t1.djjg_dm and t0.zzjg_dm = t1.zzjg_dm and t0.kqccsztdjbz = t1.kqccsztdjbz and t0.lrr_dm = t1.lrr_dm and t0.sjgsdq = t1.sjgsdq and t0.zgswj_dm = t1.zgswj_dm and t0.zgswskfj_dm = t1.zgswskfj_dm and t0.ssgly_dm = t1.ssgly_dm and t0.fjmqybz = t1.fjmqybz and t0.swdjblbz = t1.swdjblbz and t0.nsrbm = t1.nsrbm and t0.yxbz = t1.yxbz and t0.shxydm = t1.shxydm and t0.sjlybz = t1.sjlybz where t0.djxh is null or t0.sjlybz is null;"
+
+nohup odpscmd --project=kf_jc_gszj -e "${sql}" 2>&1 >cysl.txt &
+
+未关联上的是 47866761  关联上的是 67444055-47866761=19577294
+
+
+-- 查看具体数据 
+select  t0.djxh
+,t0.gdslx_dm
+,t0.ssdabh
+,t0.nsrsbh
+,t0.nsrmc
+,t0.kzztdjlx_dm
+,t0.djzclx_dm
+,t0.fddbrxm
+,t0.fddbrsfzjlx_dm
+,t0.scjydz
+,t0.fddbrsfzjhm
+,t0.scjydzxzqhsz_dm
+,t0.nsrzt_dm
+,t0.hy_dm
+,t0.zcdz
+,t0.zcdzxzqhsz_dm
+,t0.jdxz_dm
+,t0.dwlsgx_dm
+,t0.gdghlx_dm
+,t0.djjg_dm
+,t0.djrq
+,t0.zzjg_dm
+,t0.kqccsztdjbz
+,t0.lrr_dm
+,t0.lrrq
+,t0.xgr_dm
+,t0.xgrq
+,t0.sjgsdq
+,t0.zgswj_dm
+,t0.zgswskfj_dm
+,t0.ssgly_dm
+,t0.fjmqybz
+,t0.swdjblbz
+,t0.sjtb_sj
+,t0.nsrbm
+,t0.yxbz
+,t0.shxydm
+,t0.pgjg_dm
+,t0.gszxrq
+,t0.nsrztlx_dm
+,t0.sjblbz
+,t0.myqybz
+,t0.sjlybz
+,t1.djxh
+,t1.gdslx_dm
+,t1.ssdabh
+,t1.nsrsbh
+,t1.nsrmc
+,t1.kzztdjlx_dm
+,t1.djzclx_dm
+,t1.fddbrxm
+,t1.fddbrsfzjlx_dm
+,t1.scjydz
+,t1.fddbrsfzjhm
+,t1.scjydzxzqhsz_dm
+,t1.nsrzt_dm
+,t1.hy_dm
+,t1.zcdz
+,t1.zcdzxzqhsz_dm
+,t1.jdxz_dm
+,t1.dwlsgx_dm
+,t1.gdghlx_dm
+,t1.djjg_dm
+,t1.djrq
+,t1.zzjg_dm
+,t1.kqccsztdjbz
+,t1.lrr_dm
+,t1.lrrq
+,t1.xgr_dm
+,t1.xgrq
+,t1.sjgsdq
+,t1.zgswj_dm
+,t1.zgswskfj_dm
+,t1.ssgly_dm
+,t1.fjmqybz
+,t1.swdjblbz
+,t1.sjtb_sj
+,t1.nsrbm
+,t1.yxbz
+,t1.shxydm
+,t1.pgjg_dm
+,t1.gszxrq
+,t1.nsrztlx_dm
+,t1.sjblbz
+,t1.myqybz
+,t1.sjlybz from 
+(select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(gdslx_dm),'nu','','NU','',gdslx_dm),'') gdslx_dm,coalesce(decode(trim(ssdabh),'nu','','NU','',ssdabh),'') ssdabh,coalesce(decode(trim(nsrsbh),'nu','','NU','',nsrsbh),'') nsrsbh,coalesce(decode(trim(nsrmc),'nu','','NU','',nsrmc),'') nsrmc,coalesce(decode(trim(kzztdjlx_dm),'nu','','NU','',kzztdjlx_dm),'') kzztdjlx_dm,coalesce(decode(trim(djzclx_dm),'nu','','NU','',djzclx_dm),'') djzclx_dm,coalesce(decode(trim(fddbrxm),'nu','','NU','',fddbrxm),'') fddbrxm,coalesce(decode(trim(fddbrsfzjlx_dm),'nu','','NU','',fddbrsfzjlx_dm),'') fddbrsfzjlx_dm,coalesce(decode(trim(scjydz),'nu','','NU','',scjydz),'') scjydz,coalesce(decode(trim(fddbrsfzjhm),'nu','','NU','',fddbrsfzjhm),'') fddbrsfzjhm,coalesce(decode(trim(scjydzxzqhsz_dm),'nu','','NU','',scjydzxzqhsz_dm),'') scjydzxzqhsz_dm,coalesce(decode(trim(nsrzt_dm),'nu','','NU','',nsrzt_dm),'') nsrzt_dm,coalesce(decode(trim(hy_dm),'nu','','NU','',hy_dm),'') hy_dm,coalesce(decode(trim(zcdz),'nu','','NU','',zcdz),'') zcdz,coalesce(decode(trim(zcdzxzqhsz_dm),'nu','','NU','',zcdzxzqhsz_dm),'') zcdzxzqhsz_dm,coalesce(decode(trim(jdxz_dm),'nu','','NU','',jdxz_dm),'') jdxz_dm,coalesce(decode(trim(dwlsgx_dm),'nu','','NU','',dwlsgx_dm),'') dwlsgx_dm,coalesce(decode(trim(gdghlx_dm),'nu','','NU','',gdghlx_dm),'') gdghlx_dm,coalesce(decode(trim(djjg_dm),'nu','','NU','',djjg_dm),'') djjg_dm,coalesce(to_date(trim(djrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) djrq,coalesce(decode(trim(zzjg_dm),'nu','','NU','',zzjg_dm),'') zzjg_dm,coalesce(decode(trim(kqccsztdjbz),'nu','','NU','',kqccsztdjbz),'') kqccsztdjbz,coalesce(decode(trim(lrr_dm),'nu','','NU','',lrr_dm),'') lrr_dm,coalesce(to_date(trim(lrrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) lrrq,coalesce(decode(trim(xgr_dm),'nu','','NU','',xgr_dm),'') xgr_dm,coalesce(to_date(trim(xgrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) xgrq,coalesce(decode(trim(sjgsdq),'nu','','NU','',sjgsdq),'') sjgsdq,coalesce(decode(trim(zgswj_dm),'nu','','NU','',zgswj_dm),'') zgswj_dm,coalesce(decode(trim(zgswskfj_dm),'nu','','NU','',zgswskfj_dm),'') zgswskfj_dm,coalesce(decode(trim(ssgly_dm),'nu','','NU','',ssgly_dm),'') ssgly_dm,coalesce(decode(trim(fjmqybz),'nu','','NU','',fjmqybz),'') fjmqybz,coalesce(decode(trim(swdjblbz),'nu','','NU','',swdjblbz),'') swdjblbz,coalesce(to_date(trim(sjtb_sj),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) sjtb_sj,coalesce(decode(trim(nsrbm),'nu','','NU','',nsrbm),'') nsrbm,coalesce(decode(trim(yxbz),'nu','','NU','',yxbz),'') yxbz,coalesce(decode(trim(shxydm),'nu','','NU','',shxydm),'') shxydm,coalesce(decode(trim(pgjg_dm),'nu','','NU','',pgjg_dm),'') pgjg_dm,coalesce(to_date(trim(gszxrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) gszxrq,coalesce(decode(trim(nsrztlx_dm),'nu','','NU','',nsrztlx_dm),'') nsrztlx_dm,coalesce(trim(sjblbz),0) sjblbz,coalesce(decode(trim(myqybz),'nu','','NU','',myqybz),'') myqybz,coalesce(decode(trim(sjlybz),'nu','','NU','',sjlybz),'') sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228' and djxh in ('10113205010000457123','10216101000000027442')) t1
+inner join 
+(select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(gdslx_dm),'nu','','NU','',gdslx_dm),'') gdslx_dm,coalesce(decode(trim(ssdabh),'nu','','NU','',ssdabh),'') ssdabh,coalesce(decode(trim(nsrsbh),'nu','','NU','',nsrsbh),'') nsrsbh,coalesce(decode(trim(nsrmc),'nu','','NU','',nsrmc),'') nsrmc,coalesce(decode(trim(kzztdjlx_dm),'nu','','NU','',kzztdjlx_dm),'') kzztdjlx_dm,coalesce(decode(trim(djzclx_dm),'nu','','NU','',djzclx_dm),'') djzclx_dm,coalesce(decode(trim(fddbrxm),'nu','','NU','',fddbrxm),'') fddbrxm,coalesce(decode(trim(fddbrsfzjlx_dm),'nu','','NU','',fddbrsfzjlx_dm),'') fddbrsfzjlx_dm,coalesce(decode(trim(scjydz),'nu','','NU','',scjydz),'') scjydz,coalesce(decode(trim(fddbrsfzjhm),'nu','','NU','',fddbrsfzjhm),'') fddbrsfzjhm,coalesce(decode(trim(scjydzxzqhsz_dm),'nu','','NU','',scjydzxzqhsz_dm),'') scjydzxzqhsz_dm,coalesce(decode(trim(nsrzt_dm),'nu','','NU','',nsrzt_dm),'') nsrzt_dm,coalesce(decode(trim(hy_dm),'nu','','NU','',hy_dm),'') hy_dm,coalesce(decode(trim(zcdz),'nu','','NU','',zcdz),'') zcdz,coalesce(decode(trim(zcdzxzqhsz_dm),'nu','','NU','',zcdzxzqhsz_dm),'') zcdzxzqhsz_dm,coalesce(decode(trim(jdxz_dm),'nu','','NU','',jdxz_dm),'') jdxz_dm,coalesce(decode(trim(dwlsgx_dm),'nu','','NU','',dwlsgx_dm),'') dwlsgx_dm,coalesce(decode(trim(gdghlx_dm),'nu','','NU','',gdghlx_dm),'') gdghlx_dm,coalesce(decode(trim(djjg_dm),'nu','','NU','',djjg_dm),'') djjg_dm,coalesce(to_date(trim(djrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) djrq,coalesce(decode(trim(zzjg_dm),'nu','','NU','',zzjg_dm),'') zzjg_dm,coalesce(decode(trim(kqccsztdjbz),'nu','','NU','',kqccsztdjbz),'') kqccsztdjbz,coalesce(decode(trim(lrr_dm),'nu','','NU','',lrr_dm),'') lrr_dm,coalesce(to_date(trim(lrrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) lrrq,coalesce(decode(trim(xgr_dm),'nu','','NU','',xgr_dm),'') xgr_dm,coalesce(to_date(trim(xgrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) xgrq,coalesce(decode(trim(sjgsdq),'nu','','NU','',sjgsdq),'') sjgsdq,coalesce(decode(trim(zgswj_dm),'nu','','NU','',zgswj_dm),'') zgswj_dm,coalesce(decode(trim(zgswskfj_dm),'nu','','NU','',zgswskfj_dm),'') zgswskfj_dm,coalesce(decode(trim(ssgly_dm),'nu','','NU','',ssgly_dm),'') ssgly_dm,coalesce(decode(trim(fjmqybz),'nu','','NU','',fjmqybz),'') fjmqybz,coalesce(decode(trim(swdjblbz),'nu','','NU','',swdjblbz),'') swdjblbz,coalesce(to_date(trim(sjtb_sj),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) sjtb_sj,coalesce(decode(trim(nsrbm),'nu','','NU','',nsrbm),'') nsrbm,coalesce(decode(trim(yxbz),'nu','','NU','',yxbz),'') yxbz,coalesce(decode(trim(shxydm),'nu','','NU','',shxydm),'') shxydm,coalesce(decode(trim(pgjg_dm),'nu','','NU','',pgjg_dm),'') pgjg_dm,coalesce(to_date(trim(gszxrq),'yyyy-mm-dd hh:mi:ss'),to_date('9999-12-31 00:00:00','yyyy-mm-dd hh:mi:ss')) gszxrq,coalesce(decode(trim(nsrztlx_dm),'nu','','NU','',nsrztlx_dm),'') nsrztlx_dm,coalesce(decode(trim(sjblbz),'nu','','NU','','','0',sjblbz),'0') sjblbz,coalesce(decode(trim(myqybz),'nu','','NU','',myqybz),'') myqybz,coalesce(decode(trim(sjlybz_jz),'nu','','NU','',sjlybz_jz),'') sjlybz from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222' and djxh in ('10113205010000457123','10216101000000027442')) t0
+on t0.djxh = t1.djxh and t0.sjlybz = t1.sjlybz;
+
+-- 按处理规则重新统计下  -- 33594629
+select t1.djxh,t0.djxh,t1.sjlybz,t0.sjlybz from 
+(select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(sjlybz),'nu','','NU','',sjlybz),'') sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228') t1
+left join 
+(select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(sjlybz_jz),'nu','','NU','',sjlybz_jz),'') sjlybz from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz
+where (t0.djxh is null or t0.sjlybz is null) and t1.djxh='10213102000000301716';
+
+select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(sjlybz),'nu','','NU','',sjlybz),'') sjlybz from kf_jc_gszj.hx_dj_dj_nsrxx 
+where rfq='cy20201228' and djxh='10213102000000301716';
+
+select coalesce(decode(trim(djxh),'nu','','NU','',djxh),'') djxh,coalesce(decode(trim(sjlybz_jz),'nu','','NU','',sjlybz_jz),'') sjlybz from kf_jc_gszj.l_hx_dj_dj_nsrxx 
+where rfq='20201222' 
+
+
+-- 限制时间试试
+select min(coalesce(xgrq,lrrq)),max(coalesce(xgrq,lrrq)) from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228';  -- 检查下日期，过滤掉一些干扰因素   1971-01-01 00:00:00 | 2020-12-03 16:35:37 
+
+select count(1) from kf_jc_gszj.hx_dj_dj_nsrxx where rfq='cy20201228' and to_char(coalesce(xgrq,lrrq),'yyyymm')>'202005';  -- 超过5月份的有33几条，我们基本可以认为是少量的脏数据
+
+-- 分析结束：20200106 将分析过程重新对应到脚本
+1 从表的各个单位n_ls增量数据从20190831一直到20200531汇总在一起，在取各个主键操作最新的那一条数据,插入数据 （新增步骤） 不在创建新的表，输出到kf_jc_gszj.表名称分区是【ls8888】
+2 在南海云kf_jc_gszj创建对应的表，规则是在原有的建表脚本前增加opcode,position,readtime,sfq（需要重新写） 辉哥 输出：kf_jc_gszj.表名称 需要在北京云和南海云都创建
+3 按模板拼接对比差异语句，然后用主键左关联n_ls表 执行后插入到创建的表中（需要重新写） 辉哥  输出到：kf_jc_gszj.表名称分区是【t18888】
+4 将准备好的结果数据copytask到北京云（不需要改动） 输出到：kf_jc_gszj.表名称分区是【t18888】
+5 将drds在线库抽取到北京云，创建表的语句也已经在脚本中写好  （不需要改动）按照drds结构创建表kf_jc_gszj.l_表名称 分区是【t08888】
+6 按照分析模板sql拼接语句，并将差异结果插入规定好的分区（需要重新写）
+7 将分析好的结果replace into到drds （不需要改动）
+

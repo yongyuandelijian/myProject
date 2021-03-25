@@ -1,0 +1,62 @@
+﻿北京云准实时链路修复事项
+背景：
+北京云目前经常收到反馈，准实时链路存在部分数据缺失或者字段未更新的情况，需要重新推送数据进行修复。
+
+
+原因：
+上述问题，属于偶发性问题，问题原因已经查明，在2020年3月底进行过一次大规模的数据修复工作，由于当时时间仓促，数据修复方案不完善，为确保生产系统正常使用数据，因此存在部分遗留问题未进行统一修复。
+
+
+
+解决方案：
+针对上述问题，我们出具如下解决方案，具体分两步来做。
+
+
+1、针对缺失数据的处理方案：
+	a、将drds的数据（sjjc库中的原表，如：hx_dj_dj_nsrxx），同步到odps的kf_jc_gszj项目中，通过T+1的数据，与新抽取过来的数据进行主键关联，进行数据比对，将缺失的数据捕获出来。
+	b、待验证无误后，见缺失的数据写入到drds中。（该步骤暂缓执行）
+
+2、针对字段未更新的解决方案：
+	a、将drds的数据（sjjc库中的原表，如：hx_dj_dj_nsrxx），同步到odps的kf_jc_gszj项目中，通过T+1的数据，与新抽取数据进行全字段匹配（基于drds表的列进行比对），将缺失问题数据捕获出来。
+	b、待验证无误后，见缺失的数据写入到drds中。（该步骤暂缓执行）
+
+
+操作步骤
+1 找出目前业务表单
+odpscmd --project='sc_jc_gszj' -e "show tables" |grep -E "hx_|gs_" |awk -F ':' '{print $2}' |sed 's/_increment//g' |sort -u
+
+然后到在线库drds中去过滤t+0表单  合计59张 和原始任务59个表核对一致
+ show tables like 'GS_%';   14  这里有一个copy的表，去除之后13
+ show tables like 'HX_%';   46
+ 
+将数据处理后存入名单： cat t0.tablelist|tr 'a-z' 'A-Z' |sort -u >t0_tablelist
+ 
+2 copytask将该表单的36个单位数据从南海复制到北京云
+
+cd /home/admin/lipengchao
+
+执行脚本：sh nhtobj.sh 20201220 t0_tablelist
+
+将在线库drds中的数据抽取到北京云odps  执行： sh drdstoopds.sh 20201222 t0_tablelist
+
+3复制完成之后，编写核对脚本，首先处理数据缺失的情况，可以将之前写的脚本进行复用，
+ 3.1    逻辑是将在线库时分区（SFQ）小于20200501的表数据抽取到kf_jc_gszj下的【L_表名称，表结构和drds相同】和北京云的表主键进行核对，获取到在线库没有主键的部分，【后面步骤待核对前面的逻辑没有问题的清空下，在进行调用】直接调用t0补数的脚本进行补充
+ 
+ 
+ select t1.djxh,t1.sjlybz from
+(select djxh,sjlybz from sc_jc_gszj.HX_DJ_DJ_NSRXX where rfq='20201222') t1
+left join (select djxh,sjlybz_jz as sjlybz from kf_jc_gszj.L_HX_DJ_DJ_NSRXX where rfq='20201222') t0
+on t1.djxh=t0.djxh and t1.sjlybz=t0.sjlybz
+where t0.djxh is null
+ 
+ 
+ 
+ 3.2 全字段比对，字段以drds字段为准，全字段关联，数据以odps t+1为准，如果drds的主键为空，那么获取到t+1的主键出来就是需要更新的数据，调用t0补数进行更新数据
+通过昨晚思考之后，发现如果是走关联的方式，这两步其实也可以合并为一步直接去获取到缺数据，以及部分列内容一致的情况，核对名单后，调用t0补数进行更新数据
+
+
+
+-------------------  20201224 ----------------------------------
+
+insert overwrite table kf_jc_gszj.hx_dj_dj_nsrxx partition (rfq='cy20201228',sjlybz)
+select * from (select case when startrfq.djxh is null and endrfq.djxh is not null then 'I' when startrfq.djxh is not null and endrfq.djxh is null then 'D' when startrfq.djxh is not null and endrfq.djxh is not null and endrfq.sjtb_sj>startrfq.sjtb_sj then 'U' end as opcode,coalesce(endrfq.djxh,startrfq.djxh) as djxh,endrfq.gdslx_dm,endrfq.ssdabh,endrfq.nsrsbh,endrfq.nsrmc,endrfq.kzztdjlx_dm,endrfq.djzclx_dm,endrfq.fddbrxm,endrfq.fddbrsfzjlx_dm,endrfq.scjydz,endrfq.fddbrsfzjhm,endrfq.scjydzxzqhsz_dm,endrfq.nsrzt_dm,endrfq.hy_dm,endrfq.zcdz,endrfq.zcdzxzqhsz_dm,endrfq.jdxz_dm,endrfq.dwlsgx_dm,endrfq.gdghlx_dm,endrfq.djjg_dm,endrfq.djrq,endrfq.zzjg_dm,endrfq.kqccsztdjbz,endrfq.lrr_dm,endrfq.lrrq,endrfq.xgr_dm,endrfq.xgrq,endrfq.sjgsdq,endrfq.zgswj_dm,endrfq.zgswskfj_dm,endrfq.ssgly_dm,endrfq.fjmqybz,endrfq.swdjblbz,endrfq.sjtb_sj,endrfq.nsrbm,endrfq.yxbz,endrfq.shxydm,endrfq.pgjg_dm,endrfq.gszxrq,endrfq.yptetl_sj,endrfq.nsrztlx_dm,endrfq.sjblbz,endrfq.myqybz,endrfq.qyhxlb_dm,endrfq.qyhxly,coalesce(endrfq.sjlybz,startrfq.sjlybz) as sjlybz from (select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20190831') startrfq full outer join (select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20200531') endrfq on startrfq.djxh=endrfq.djxh and startrfq.sjlybz=endrfq.sjlybz) cymx where cymx.opcode is not null;

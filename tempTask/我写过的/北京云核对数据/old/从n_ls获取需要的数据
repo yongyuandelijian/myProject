@@ -1,0 +1,40 @@
+#! /bin/bash
+# 功能：从n_ls抽取需要的字段 主键+操作字段
+# 参数：1 bizdate 仅用于设置存储分区的名称  2 表单文件名称
+# 用法：sh getlscy.sh 20210108 t0_tablelist
+# 李鹏超 20210108
+
+# 需要的参数准备
+bizdate=$1
+tablelist=$2
+projectname='KF_JC_GSZJ'  # 当前是固定的，如果需要可以进行传参
+
+# 南海云
+odpsServer="http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api"
+tunnelServer="http://dt.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn"
+odpsaccessId="yXKpKuN0xKF5MLpK"
+odpsaccessKey="1glCWzC8XkTT3BSpoY9NkYMibQslxB"
+odpscmd="/home/admin/client/odps/bin/odpscmd --endpoint=${endpoint} -u ${accessid} -p ${accesskey}"
+
+if [ $# -ne 2 ]; then echo "传入的参数必须是2个，获取到的参数是【$*】"; exit -1; fi;
+
+for tablename in `cat ${tablelist}`
+do
+for dw in `cat alldw`
+do
+
+done
+done;
+
+
+
+
+
+
+
+
+select mx.djxh,mx.sjlybz,opcode,position,readtime,sfq from 
+(select djxh,sjlybz,opcode,position,readtime,concat('20210106','0000') as sfq,
+row_number() over (partition by djxh,sjlybz,opcode order by djxh,sjlybz,opcode,position,readtime) as rn
+from n_ls_hx_dj_dj_nsrxx where rfq>'20190831' and rfq<'20200531') mx 
+where rn=1;

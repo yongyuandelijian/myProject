@@ -1,0 +1,161 @@
+#!/bin/bash
+#####################################################################################################
+#author:lpc
+#createtime:2020-07-02
+#function: 
+#param：业务日期(20200701)  单位名称(JSST) 目标表()
+#目录设计：
+#实现思路：1 (makejson_trim.sh)生成json只抽取业务日期大于等于-1并且小于业务日期+1的数据，
+#          2 (rundatax.sh)然后再执行json n表中存在这两天的数据，
+# 第三需要将这两天的csv加载前三列外加主键到n_ls表获取到这两天删除的数据，关联的时候再去除掉删除的之后再去拼接
+# 然后使用mergen_zl.sh来进行合并，合并的时候使用最新全量分区小于bizdata-1日期的数据在拼接到n表的数据就相当于得到了一份全量的数据
+
+#注意事项：
+#####################################################################################################
+# 1 定义参数
+bizDate=$1
+dwmc=$2
+scriptPath=`pwd`
+projectName="SC_JX_${dwmc}"
+targetTable=$3
+sourceTable=`echo ${targetTable} |sed s/^/N_/g |tr [a-z] [A-Z]`
+
+
+odpscmd="/home/admin/odps/bin/odpscmd --endpoint=http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api -u yXKpKuN0xKF5MLpK -p 1glCWzC8XkTT3BSpoY9NkYMibQslxB --project=sc_jc_gszj"
+ossutil='/home/admin/ossutil'
+endpoint='oss-cn-foshan-lhc-d01-a.alicloud.its.tax.cn'
+accessid='yXKpKuN0xKF5MLpK'
+accesskey='1glCWzC8XkTT3BSpoY9NkYMibQslxB'
+
+proLog="${scriptPath}/merge_${bizDate}_${targetTable}_`date +%Y%m%d%H%M%S`.log"  # 日志路径以及格式
+
+# 2 开始获取数据
+${odpscmd} -e "desc ${projectName}.${sourceTable};" >> ${proLog}
+initCols=`cat ${proLog} | grep -E 'bigint|string|boolean|double|datetime|decimal|Partition' |grep -v "before_"| awk '{print $2}' | awk '{printf $0","}'`
+
+#add by yinqiang  check jx_tabel exists
+if [[ ! -n ${initCols} ]];
+then 
+echo "-- 未获取到${projectName}.${sourceTable}的列请检查！！！--"; 
+exit 1; 
+fi
+
+# 3 获取指定单位镜像层目标表除去分区的其他列
+echo "***********************************"
+echo ${initCols}
+allCols1=$(echo ${initCols%%Partition*} | tr '[a-z]' '[A-Z]') # 从右向左截取最后一个partition的位置也就是去除分区列
+echo "***********************************"
+echo ${allCols1}
+echo "***********************************"
+allColsls=${allCols1%?}
+echo ${allColsls}
+allCols=$(echo ${allColsls}|sed 's/OPCODE,POSITION,READTIME,//g')
+echo ${allCols}
+
+# 4 获取指定基础层目标表除去分区的其他列
+echo "***********************************"
+initCols2=`${odpscmd} -e "desc sc_jc_gszj.${targetTable};"|grep -E 'bigint|string|boolean|double|datetime|decimal|Partition' | awk '{print $2}' | awk '{printf $0","}'` #基础层表的解析结果
+allCols2=$(echo ${initCols2%%Partition*} | tr '[a-z]' '[A-Z]') 
+allCols2=${allCols2%?} 
+echo ${allCols2}
+
+#5 比较临时层和基础层的表结构，基础层多的列用null补全
+targetCols=`echo ${allCols2}|sed 's/,/ /g'`
+sourceCols=`echo ${allCols}|sed 's/,/ /g'`
+jcallCols=$(
+num=1
+for tarCol in ${targetCols}
+do
+temp="NULL"
+    for souCol in ${sourceCols}
+    do
+       if [ "$tarCol" == "$souCol" ]
+       then
+           temp=$souCol
+           break
+       fi 
+       if [[ "$tarCol" == "SJLYBZ_JZ" && "$souCol" == "SJLYBZ" ]]
+       then
+       temp="SJLYBZ"
+       fi
+    done
+    if [ $num -eq 1 ]
+    then
+       str1="${temp} as ${tarCol}"
+       num=2
+    else
+       str1="${str1},${temp} as ${tarCol}"
+    fi
+done
+echo ${str1})
+echo "###################################"
+echo ${jcallCols}
+echo "***********************************"
+jcallCols1=`echo ${jcallCols}|sed 's/\<SJLYBZ\>/SJLYBZ_JZ/g'`
+echo ${jcallCols1}
+echo "***********************************"
+
+
+# 6 insert string
+insertStr="insert overwrite table SC_JC_GSZJ.${targetTable} partition (RFQ = '${bizdate}',SJLYBZ = '${dwmc}')"
+
+${ossutil}  cp -f oss://newlink/${dwmc}/addfilelist/${bizDate}_${dwmc}_pk.conf ${scriptPath}/${bizDate}_${dwmc}_pk.conf
+
+lsprimaryKeys=$(cat ${scriptPath}/${bizDate}_${dwmc}_pk.conf|grep -w "${targetTable}"|awk -F "|" '{print $3}'|xargs|sed 's/ /,/g')
+if [[ -n ${lsprimaryKeys} ]];then primaryKeys=`echo ${lsprimaryKeys}`;
+else 
+initColspk=`cat ${proLog} | grep -E 'bigint|string|boolean|double|datetime|decimal|Partition' | awk '{print $2}'|grep -v "before_" |grep -vw 'opcode'|grep -vw 'position'|grep -vw 'readtime' | awk '{printf $0","}'`
+allColspk=$(echo ${initColspk%%Partition*} | tr '[a-z]' '[A-Z]')
+allColspk=${allColspk%?}
+primaryKeys=`echo ${allColspk}|sed 's/,YPTETL_SJ//g'`; 
+echo ${primaryKeys}; 
+fi
+
+
+
+
+
+legacyCols=${allCols2//,/,t1.} # add 't1.' prefix for each field
+echo ${legacyCols}
+
+# join condition string by primary key
+num=1
+for col in ${primaryKeys//,/ }
+do
+    if [ $num -eq 1 ]; then
+        legacyJoinCons="on t1.${col} = t2.${col}"
+        legacyFilterStr="where t2.${col} is null"
+    else
+        legacyJoinCons="${legacyJoinCons} and t1.${col} = t2.${col}"
+    fi
+    num=$[num+1]
+done
+
+
+#select string  /* + mapjoin(t2) */
+legacySelectStr1="
+select t1.${legacyCols} 
+  from SC_JC_GSZJ.${targetTable} t1 
+  left outer join ("
+
+legacySelectStr2="
+select ${primaryKeys}
+  from ${projectName}.${targetTable} 
+ where rfq = '${bizDate}'"
+
+legacySQL="${legacySelectStr1} ${legacySelectStr2} 
+${legacyJoinCons} 
+${legacyFilterStr}"
+updatedSQL="select ${allCols2} 
+from ${projectName}.${projectName} 
+where rfq = '${bizDate}'"
+
+finalSQL="select ${jcallCols1} 
+from ( ${legacySQL} 
+and t1.rfq = to_char(dateadd(to_date('${bizDate}','yyyymmdd'),-1,'dd'),'yyyymmdd')
+and t1.SJLYBZ = '${dwmc}'
+union all
+${updatedSQL}) t;"
+echo "+++++++++++++基础层insertStr1 SQL+++++++++++++"
+echo -e "${insertStr1};"
+${odpscmd} -e "${insertStr1}"

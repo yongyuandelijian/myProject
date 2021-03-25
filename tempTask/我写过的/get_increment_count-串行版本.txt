@@ -1,0 +1,120 @@
+#!/bin/bash
+#####################################################################################################
+#author:lpc
+#create_time:2020-06-12
+#function: 从指定的表获取他实际新增的数据量（按主键计算数据量，如果没有主键则统计所有条数count(1)）
+#param：单位代码(BJST) 业务日期（20200531）基础层表名称（从table文件中获得比如：HX_DJ_DJ_NSRXX）
+#目录设计：85 运行脚本在/home/zr_user/lipengchao/myscript 产生的sql在后面追加到 单位代码/业务日期/  日志也是同目录 /log
+#实现思路：从n_ls获取到指定的单位和分区，根据主键分组获取到每一个主键的数据的实际opcode然后在一起统计当前表的实际增量
+#注意事项：需要先执行rf -rf /home/zr_user/lipengchao/myscript/*ST*
+#####################################################################################################
+# 1 定义参数
+mydir=`pwd`
+dwmc=$1
+bizdate=$2
+runtime=`date +%Y%m%d`
+projectname="SC_JX_${dwmc}"
+odpscmd="/home/zr_user/odps/bin/odpscmd --project="${projectname}""
+mysqljdbc="-h127.0.0.1 -P1111 -u1111 -p2222 -D 3333"
+
+if test -r /home/zr_user/odps/bin/odpscmd;
+then 
+echo "odpscmd权限检查完毕";
+else
+echo "${USER} 没有权限执行 /home/zr_user/odps/bin/odpscmd";
+exit 1;
+fi;
+
+# 2 创建存放统计sql和执行log的目录
+sqlpath_odps=${mydir}/${dwmc}/${bizdate}/odpssql
+sqlpath_rds=${mydir}/${dwmc}/${bizdate}/rdssql
+logpath=${mydir}/${dwmc}/${bizdate}/log
+if [ ! -d "${sqlpath_odps}" ]; then mkdir -p "${sqlpath_odps}"; fi;
+if [ ! -d "${logpath}" ]; then mkdir -p "${logpath}"; fi;
+if [ ! -d "${sqlpath_rds}" ]; then mkdir -p "${sqlpath_rds}"; fi;
+# 3 拼接查询sql并执行统计
+bsl=`cat table|sed 's/ //g'|wc -l`  # 表总数
+dqsl=0
+for tablename in `cat table |sed 's/^/N_LS_/g'`
+do
+dqsl=$((dqsl+1));
+echo "要统计的表总数是：${bsl}当前正在查询的是第：${dqsl}个";
+# 3.0 先判断报错情况，如果不存在则进行提示，并跳过当前操作
+# 3.0.1 项目下表不存在
+isexists=`${odpscmd} -e "desc ${projectname}.${tablename};" |grep "Table not found" |wc -l`
+if [ ${isexists} -gt 0 ];
+then 
+echo "${tablename} not found"
+echo "${projectname}下的${tablename}不存在！" >${logpath}/${tablename}.log 2>&1
+continue
+fi;
+# 3.0.2 表没有rfq
+isrfq=`${odpscmd} -e "desc ${projectname}.${tablename};"|grep -E 'bigint|string|boolean|double|datetime|decimal'|grep -w "rfq" |wc -l`
+if [ ${isrfq} -eq 0 ];
+then 
+echo "${tablename} column rfq cannot be resolved!"
+echo "${projectname}下的${tablename}没有rfq这个列！" >${logpath}/${tablename}.log 2>&1
+continue
+fi;
+# 3.0.3 表分区没有数据或者分区不存在不会报错，如果为空多的话可以考虑先统计条数如果为空则不处理可以提高效率，我们这种情况少还是按正常统计
+
+# 3.1判断主键情况，如果有主键则主键拼接，如果没有主键，那拼接所有列内容进行统计
+pksl=`${odpscmd} -e "desc ${projectname}.${tablename};" |grep primary_key |awk -F '|' '{print $2}'|wc -l`
+if [ ${pksl} -eq 1 ]; then 
+pk=`${odpscmd} -e "desc ${projectname}.${tablename};" |grep primary_key |awk -F '|' '{print $2}'|sed 's/ //g'`
+before_pk=`${odpscmd} -e "desc ${projectname}.${tablename};" |grep primary_key |awk -F '|' '{print $2}'|sed 's/^/before_/g'|sed 's/ //g'`
+elif [ ${pksl} -gt 1 ]; then 
+pk=`${odpscmd} -e "desc ${projectname}.${tablename};" |grep primary_key |awk -F '|' '{print $2}'|sed 's/ //g'|awk '{printf $0","}'`
+pk=`echo ${pk%?}`
+before_pk=`${odpscmd} -e "desc ${projectname}.${tablename};" |grep primary_key |awk -F '|' '{print $2}'|sed 's/^/before_/g'|sed 's/ //g'|awk '{printf $0","}'`
+before_pk=`echo ${before_pk%?}`
+elif [ ${pksl} -lt 1 ]; then
+pk=`${odpscmd} -e "desc ${project}.${tablename};"|grep -E 'bigint|string|boolean|double|datetime|decimal'|grep -vw "rfq"|grep -vw "sjlybz"|awk -F '|' '{print $2}'|sed 's/ //g'|awk '{printf $0","}'`
+pk=`echo ${pk%?}`
+before_pk=`${odpscmd} -e "desc ${project}.${tablename};"|grep -E 'bigint|string|boolean|double|datetime|decimal'|sed 's/^/before_/g'|grep -vw "rfq"|grep -vw "sjlybz"|awk -F '|' '{print $2}'|sed 's/ //g'|awk '{printf $0","}'`
+before_pk=`echo ${before_pk%?}`
+fi
+
+echo "${projectname}下${tablename}的主键是数量是${pksl}分别是${pk}|${before_pk}";
+
+# 3.2拼接统计sql
+sql="
+select 
+	'${projectname}' as projectname
+	, '${tablename}' as tablename
+	, ${bizdate} as bizdate
+	,count(distinct case when opcode='I' then pk_temp end)-count(distinct case when opcode='D' then pk_temp end) as xzl
+	,'${runtime}' as runtime
+	from 
+	(select 
+	case when cy>0 then 'I' when cy<0 then 'D' else 'U' end as opcode,pk_temp
+	from 
+	(
+	SELECT opcode AS opcode
+		, position AS position
+		, readtime AS readtime
+		, coalesce(concat(${pk}),concat(${before_pk})) as pk_temp
+		, count(case when opcode='I' then 1 end) over (partition by coalesce(concat(${pk}),concat(${before_pk})))-count(case when opcode='D' then 1 end) over (partition by coalesce(concat(${pk}),concat(${before_pk}))) as cy
+		, ROW_NUMBER() OVER (PARTITION BY coalesce(concat(${pk}),concat(${before_pk})) ORDER BY CAST(position AS DECIMAL) DESC) AS rn
+	FROM ${projectname}.${tablename}
+	WHERE rfq = ${bizdate}
+	) mx where cy<>0 and rn=1) mx where opcode in ('I','D');
+"
+echo ${sql} > ${sqlpath_odps}/${tablename}.sql   # 将odps的统计sql保存起来
+
+${odpscmd} -e "${sql}" |grep ${tablename} >>${sqlpath_rds}/odps_cxjg.sql 2>>${sqlpath_rds}/odps_cxjg.err  # 将结果存储到一个文件
+
+done
+
+# 4 插入到rcount.new_ctable_zlbd
+# 4.1 将结果拼接为要插入rcount的sql
+cat ${sqlpath_rds}/odps_cxjg.sql|sed 's/ //g' |awk -F "|" '{print "replace into new_ctable_zlbd (projectname,jobname,bizdate,zl,runtime1) values (""'\''"$2"'\','","'\''"$3"'\','","'\''"$4"'\','",$5"','","'\''"$6"'\''"");"}' >${sqlpath_rds}/rds_insert.sql # 存储拼接好的insert语句
+# 4.2 执行插入
+nohup mysql ${mysqljdbc} <${sqlpath_rds}/rds_insert.sql >${logpath}/${runtime}.log 2>&1 & # 执行sql文件
+if [[ $? -ne 0 ]];
+then
+echo "replace into rds error";
+exit 1;
+else
+echo "${tablename}统计结果插入rds成功！！！" 
+fi

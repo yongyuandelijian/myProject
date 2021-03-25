@@ -1,0 +1,131 @@
+-- 处理分区异常
+hx_qx_qx_jggw_zns	
+hx_qx_qx_dlzhxx	
+hx_qx_qx_swjg_gw	
+hx_qx_dm_qx_gwfl	
+hx_qx_qx_gw_xtgn	
+hx_qx_qx_swjg_zns	
+hx_qx_dm_qx_swrysf	
+hx_dm_zdy_dm_qx_gw	
+hx_qx_qx_jggw_swrysf
+这些表，将带0的分区，rename成为正常分区
+
+select * from hx_qx_qx_jggw_zns
+
+-- 找到对应的分区
+select project_name,name,partition_spec 
+from meta.m_table 
+where ds='20201019'
+and name in (
+'hx_qx_qx_jggw_zns',	
+'hx_qx_qx_dlzhxx',	
+'hx_qx_qx_swjg_gw',	
+'hx_qx_dm_qx_gwfl',	
+'hx_qx_qx_gw_xtgn',	
+'hx_qx_qx_swjg_zns',	
+'hx_qx_dm_qx_swrysf',	
+'hx_dm_zdy_dm_qx_gw',	
+'hx_qx_qx_jggw_swrysf'
+) 
+and length(split_part(split_part(partition_spec,'/',1),'=',2))=9
+order by project_name,name,partition_spec ;
+
+
+/home/zr_user/odps/bin/odpscmd
+
+-- 核对结果
+| sc_jc_gszj   | hx_qx_dm_qx_gwfl | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_gw_xtgn | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_dm_zdy_dm_qx_gw | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_zns | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_zns | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_dm_zdy_dm_qx_gw | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010190/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_dlzhxx | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_zns | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_zns | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_dlzhxx | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_zns | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_zns | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_gwfl | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_swrysf | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_swrysf | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_zns | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_dlzhxx | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_swrysf | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_gwfl | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_gwfl | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_dlzhxx | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_zns | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_gw_xtgn | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_swrysf | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_dm_zdy_dm_qx_gw | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_gw_xtgn | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_gw_xtgn | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_zns | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_gwfl | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_swrysf | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_gw_xtgn | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010190/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_gwfl | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_gw_xtgn | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_zns | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_dm_zdy_dm_qx_gw | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_zns | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010150/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010160/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_dm_qx_swrysf | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_swjg_gw | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_dlzhxx | rfq=202010170/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_dm_zdy_dm_qx_gw | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_dlzhxx | rfq=202010140/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_dm_zdy_dm_qx_gw | rfq=202010180/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_swrysf | rfq=202010130/sjlybz=GSZJ |
+| sc_jc_gszj   | hx_qx_qx_jggw_zns | rfq=202010130/sjlybz=GSZJ |
+
+-----  结果正确---改造sql
+select replace(concat('alter table ',project_name,'.',name,' partition (',replace(partition_spec,'/',','),') rename to partition (rfq=',substr(split_part(split_part(partition_spec,'/',1),'=',2),1,8),',sjlybz=GSZJ)'),'sjlybz=GSZJ','sjlybz='''GSZJ'''') sql
+from meta.m_table 
+where ds='20201019'
+and name in (
+'hx_qx_qx_jggw_zns',	
+'hx_qx_qx_dlzhxx',	
+'hx_qx_qx_swjg_gw',	
+'hx_qx_dm_qx_gwfl',	
+'hx_qx_qx_gw_xtgn',	
+'hx_qx_qx_swjg_zns',	
+'hx_qx_dm_qx_swrysf',	
+'hx_dm_zdy_dm_qx_gw',	
+'hx_qx_qx_jggw_swrysf'
+) 
+and length(split_part(split_part(partition_spec,'/',1),'=',2))=9;
+
+------- 处理完发现这样操作有后遗症，因为如果m_table的数据没有及时更新当前最新分区的时候，导致没有修改全，然后又手动核对一遍，这样操作不如shell从show partitions 中获取到结果，然后去修改
+#!/bin/bash
+# 按照表单从分区中获取到分区找出要修改的部分，拼接sql然后执行处理
+odpscmd='/home/zr_user/odps/bin/odpscmd --project=sc_jc_gszj'
+sql="select project_name,name,partition_spec 
+from meta.m_table 
+where ds='20201019'
+and name in (
+'hx_qx_qx_jggw_zns',	
+'hx_qx_qx_dlzhxx',	
+'hx_qx_qx_swjg_gw',	
+'hx_qx_dm_qx_gwfl',	
+'hx_qx_qx_gw_xtgn',	
+'hx_qx_qx_swjg_zns',	
+'hx_qx_dm_qx_swrysf',	
+'hx_dm_zdy_dm_qx_gw',	
+'hx_qx_qx_jggw_swrysf'
+) 
+and length(split_part(split_part(partition_spec,'/',1),'=',2))=9;
+"
+${odpscmd} -e "${sql}" |grep -v project_name

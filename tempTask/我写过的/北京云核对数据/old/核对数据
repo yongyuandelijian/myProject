@@ -1,0 +1,80 @@
+#! /bin/bash
+# 功能：核对t0和t1的数据,获取到差异的部分，两种模式：1 使用主键关联，2 使用所有列关联
+# 参数：1 bizdate  2 表单文件名称
+# 用法：sh getcytodrds.sh 20201222 t0_tablelist
+# 李鹏超 20201223
+
+# 需要的参数准备
+bizdate=$1
+tablelist=$2
+projectname='KF_JC_GSZJ'  # 当前是固定的，如果需要可以进行传参
+
+# 目标端北京云odps链接信息
+tunnelServer="http://dt.cn-beijing-gjsw-d01.odps.bjops.cloud.tax"
+endpoint='http://service.cn-beijing-gjsw-d01.odps.bjops.cloud.tax/api'
+accessid='MfEPL30xpEODxw3U'
+accesskey='UgP8mJmLNb0ZlSdo4BIRwuS86X2PPB'
+odpscmd="/home/admin/client/odps/bin/odpscmd --endpoint=${endpoint} -u ${accessid} -p ${accesskey}"
+
+
+
+# 处理目录和一些必要的检查
+if [ $# -ne 2 ] || [ ${#bizdate} -ne 8 ] || [ -z ${tablelist} ]
+then
+echo "参数个数和要求的2个不匹配或者是日分区参数不是要求的8位，当前输入的参数是【$*】请核对后再进行操作！！！"; 
+exit -1; 
+fi;  # 必须符合参数要求
+
+echo '' >${bizdate}errtable.list;  # 如果错误文件不存在则进行创建,存在则进行清空
+
+json_dir="${bizdate}/json"
+log_dir="${bizdate}/log"
+
+if [ ! -d "${json_dir}" ]; then mkdir -p ${json_dir}; fi;
+if [ ! -d "${log_dir}" ]; then mkdir -p ${log_dir}; fi;
+
+for tablename in `cat ${tablelist}`
+do
+if [ -z "${tablename}" ]; then echo "要处理的表是:【${tablename}】不能为空"; continue; fi;
+# 获取到表名称
+t1_tablename="${tablename}"
+t0_tablename=`echo "${tablename}" |sed 's/^/L_/g'`
+
+# 获取drds列名和主键列为sql做准备
+t0_cols=`${odpscmd} --project=${projectname} -e "desc ${projectname}.${t0_tablename};" |grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -viE 'yptetl_sj|rfq'|awk '{printf $2","}'|sed 's/.$//g'`
+if [ -z "${t0_cols}" ]; then echo "${projectname}.${t0_tablename}未获取到列名称，请核实后再进行操作！！！" >&1 |tee -a ${bizdate}errtable.list; continue; fi;
+
+t0_allpk=`${odpscmd} --project=${projectname} -e "desc ${projectname}.${t0_tablename};" |grep -E 'bigint|string|boolean|double|datetime|decimal' |grep 'primary_key'|awk '{printf $2","}'|sed 's/.$//g'`
+if [ -z "${t0_allpk}" ]; then echo "${projectname}.${t0_tablename}未获取到主键列，将使用所有列作为关联条件，请注意是否合理！！！"; t0_allpk="${t0_cols}"; fi;
+
+# 由于存在sjlybz名称的差异问题，处理下
+t1_cols=`echo ${t0_cols}|sed 's/sjlybz_jz/sjlybz/g'`
+t0_cols1=`echo ${t0_allpk}|sed 's/sjlybz_jz/sjlybz_jz as sjlybz/g'`
+final_cols=`echo "${t1_cols}"|sed 's/,/,t1./g'|sed 's/^/t1./g'`
+# 拼接on的关联条件和where后的关联条件
+# pkcount=`echo ${t0_allpk}|awk -F ',' '{print NF}'`  个数没啥用，后面可以直接处理
+sql_on=`for a in $(echo ${t0_allpk}|sed 's/,/ /g');do echo "t0.${a}=t1.${a} and "; done`
+sql_on=`echo "${sql_on}"|tr -d "\n"|sed 's/....$//g' |sed 's/sjlybz_jz/sjlybz/g'`
+sql_where=`echo ${t0_allpk} |sed 's/,/ is null or t0./g' |sed 's/$/ is null/g'|sed 's/^/t0./g'|sed 's/sjlybz_jz/sjlybz/g'`
+
+# 将核对后的结果存储到 【cy日分区】比如：cy20201222 中
+cyfq="cy${bizdate}"
+
+hd_sql="
+insert overwrite ${projectname}.${t0_tablename} partition(rfq='${cyfq}')
+select ${final_cols} from
+(select ${t1_cols} from sc_jc_gszj.${t1_tablename} where rfq='${bizdate}') t1
+left join (select ${t0_cols1} from ${projectname}.${t0_tablename} where rfq='${bizdate}') t0
+on ${sql_on}
+where ${sql_where}
+"
+echo "获取差异数据的sql是： ${hd_sql}"
+
+${odpscmd} --project=${projectname} -e "${hd_sql}"
+# 将上一步存储好差异数据分区，重新抽取到drds中去
+
+
+
+#odpscmd --project=KF_JC_GSZJ -e "desc KF_JC_GSZJ.L_HX_DJ_DJ_NSRXX;" |grep -E 'bigint|string|boolean|double|datetime|decimal' |grep -viE 'yptetl_sj|rfq'|awk '{printf $2","}'|sed 's/.$//g'
+done;
+exit 0;	

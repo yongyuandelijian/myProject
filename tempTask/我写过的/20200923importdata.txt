@@ -1,0 +1,39 @@
+\\--代码去重优化事项  _union 结尾
+--20200924
+1、涉及代码去重的26个表的任务（例如：hx_dm_zdy_dm_gy_swjg_ahst），调用的mergen.sh需要修改为mergend.sh，主要修改脚本中bizdate的调用逻辑，编码规则后面加一位0；例如：由原来的20200923修改为202009230
+
+26*36
+
+2、修改sc_jc_gszj项目下，代码去重任务的代码进行调整，开窗处理逻辑保留，去重后的数据，写入源表的rfq=${bizdate},sjlybz='DMQC'分区。
+
+3、修改sc_jc_gszj项目下，tygzpt_new的任务代码，将json中的bizdate值后面加0。    partition=${bizdate}   partition="${bizdate}0"
+
+# 20200924增加逻辑，处理对应日期
+bizdate_ysj="${bizDate}0"
+
+hx_dm_qg_dm_rd_qyczlx_union
+hx_dm_qg_dm_sb_kdqjyqylx_union
+hx_dm_qg_dm_sb_rjjcdlqylx_union
+hx_dm_qg_dm_sb_qysdsnbcjcwkjzdfl_union
+hx_dm_qg_dm_sb_jsxjxfwqylx_union
+hx_dm_zdy_dm_gy_yhyywd_union
+hx_dm_zdy_dm_gy_jdxz_union
+hx_dm_zdy_dm_gy_fwtc_union
+hx_dm_zdy_dm_fp_fp_union
+hx_dm_zdy_dm_gy_ysfpbl_union
+hx_dm_zdy_dm_gy_gsxzgljg_union
+hx_dm_zdy_dm_gy_gk_union
+hx_dm_qg_dm_sf_sszyfwwtxm_union
+hx_dm_qg_dm_sf_ssfwrycyqk_union
+hx_cs_zdy_cs_pz_pzzgb_union
+hx_dm_qg_dm_sf_sszyfwxyzxqk_union
+hx_dm_zdy_dm_gy_zszm_union
+hx_dm_qg_dm_sf_xzdjzt_union
+hx_dm_qg_dm_sf_sszyfwjglb_union
+hx_dm_qg_dm_sf_ssfwjgzzxs_union
+hx_dm_qg_dm_sf_ssfwjgxzdjzt_union
+hx_dm_qg_dm_rd_czflx_union
+hx_dm_zdy_dm_gy_swjg_union
+hx_dm_qg_dm_gy_xzqh_union
+hx_dm_zdy_dm_gy_swry_union
+hx_dm_qg_dm_fp_fpzl_union

@@ -1,0 +1,154 @@
+-- 创建文件夹 ：for dwmc in `cat dwmc.list`;do if [ ! -d ${dwmc} ]; then  mkdir ${dwmc}; fi; done;
+-- 复制并自动修改脚本 ：
+for dwmc in `cat dwmc.list`;
+do 
+if [ ! -f ${dwmc}/hx_sb_sb_sbxx.json ]; then  cat XZST/hx_sb_sb_sbxx.json|sed "s/sjlybz=XZST/sjlybz=${dwmc}/g" >${dwmc}/hx_sb_sb_sbxx.json; 
+fi; 
+done;
+
+
+for dwmc in `cat dwmc.list`;
+do 
+if [ ! "${dwmc}" == 'XZST' ]; then  cat XZST/hx_sb_sb_sbxx.json|sed "s/sjlybz=XZST/sjlybz=${dwmc}/g" >${dwmc}/hx_sb_sb_sbxx.json; 
+fi; 
+done;
+
+-- 查看结果
+for dwmc in `cat dwmc.list`;
+do 
+a=`ls ${dwmc}/hx_sb_sb_sbxx.json|wc -l`;
+echo ${dwmc} ${a};
+done;
+
+
+-- 自动分割数据过大的数据表
+
+
+
+
+
+-- 每次自动启动两个
+#!/bin/bash
+curdir='/home/zr_user/WX/hx_sb_sb_sbxx'
+curhour=`date +%H`
+
+cd "${curdir}"
+# 创建文件描述符 
+if [ -f ${curdir}/tempfifo ]; then rm -f ${curdir}/tempfifo; fi;
+mkfifo ${curdir}/tempfifo
+exec 3<>${curdir}/tempfifo
+rm -f ${curdir}/tempfifo
+
+# 每次创建令牌2个
+for i in `seq 1 2`;
+do
+echo >&3
+done;
+
+# 开启并发每次运行两个,夜间不在启动新的
+for dwmc in `cat dwmc.list`;
+do
+read -u3
+{
+if [ ${curhour} -ge 7 ];then
+nohup python /home/zr_user/datax3/bin/datax.py --jvm="-Xms2g -Xmx8g" ${curdir}/${dwmc}/hx_sb_sb_sbxx.json > ${curdir}/${dwmc}/hx_sb_sb_sbxx.log 2>&1
+echo >&3
+# 如果其中有单位开始报错，说明数据量已经过大，所以程序退出
+err_num=`cat ${curdir}/${dwmc}/hx_sb_sb_sbxx.log|grep 'com.alibaba.datax.common.exception' |wc -l`
+if [ ${err_num} -gt 0 ]; then echo "执行json失败！！！"; 
+exit -1; 
+fi;
+
+fi;
+} &
+
+done;
+
+wait
+
+exec 3<&-
+exec 3>&-
+
+exit 0
+
+# 如果有问题过滤自己的停止
+for i in `ps -ef |grep datax|grep hx_sb_sb_sbxx|awk '{print $2}'`; do kill ${i}; done;
+
+#查看运行结果
+for dwmc in `cat dwmc.list`;
+do 
+a=`cat ${dwmc}/hx_sb_sb_sbxx.log|grep '任务启动时刻'|awk -F ':' '{print $2,$3}'`;
+b=`cat ${dwmc}/hx_sb_sb_sbxx.log|grep '任务结束时刻'|awk -F ':' '{print $2,$3}'`;
+c=`cat ${dwmc}/hx_sb_sb_sbxx.log|grep '读出记录总数'|awk -F ':' '{print $2}'`;
+echo "${dwmc} --${a}-- ${b}-- ${c}";
+done;
+
+-- 查看启动时间 2020-09
+for dwmc in `cat dwmc.list`;
+do 
+a=`head -n 7 ${dwmc}/hx_sb_sb_sbxx.log|grep '2020-09'|awk '{print $2}'`;
+echo ${dwmc} ${a};
+done;
+
+
+-- 分析并发未按照规则每个事件段只启动两个的问题
+#!/bin/bash
+# 目的：测试并发是否在超过15分钟后会自动启动
+# 结果却是是15分钟后就会自动启动
+
+curdir=`pwd`
+# 创建文件描述符 
+if [ -f ${curdir}/tempfifo ]; then rm -f ${curdir}/tempfifo; fi;
+mkfifo ${curdir}/tempfifo
+exec 3<>${curdir}/tempfifo
+rm -f ${curdir}/tempfifo
+
+# 每次创建令牌2个
+for i in `seq 1 2`;
+do
+echo >&3
+done;
+
+# 开启并发每次运行两个,夜间不在启动新的
+for i in `seq 1 10`;
+do
+read -u3
+{
+curmin=`date +%H%M%S`
+echo "第${i}开启管道的时间是：${curmin}"
+sleep 1200
+curmin=`date +%H%M%S`
+echo "第${i}关闭管道的时间是：${curmin}"
+echo >&3
+} &
+
+done;
+
+wait
+
+exec 3<&-
+exec 3>&-
+
+exit 0
+
+---------------  从日志结果来看，确是会存在15分钟就会自动启动下一个 --------------
+第2开启管道的时间是：113041
+第1开启管道第1关闭管道的时间是：115003
+第2关闭管道的时第1关闭管道的时间是：115041
+第2关闭管道的时间是：115041
+第4开启管道的时间是：115041
+第5开启管道test_20200927.sh: linetest_20200927.sh: line 18: 50016 Terminated   test_20200927.sh: linetest_20200927.sh: line 18: 51048 Terminated   test_20200927.sh: linetest_20200927.sh: line 18: 51049 Terminated   第4关闭管道的时间是：115355
+第3关闭管道的时第3关闭管道第5关闭管道的时间是：115355
+第6开启管道的时间是：115355
+第8开启管道的时间是：115355
+第7开启管道的时间是：115355
+第9开启管道的时间是：120855
+test_20200927.sh: line 31: 53594 Terminated              { curmin=`date +%H%M%S`; echo "第${i}开启管道的时间是：${curmin}"; sleep 1200; curmin=`date +%H%M%S`; echo "第${i}关闭管道的时间是：${curmin}"; echo 1>&3; }
+test_20200927.sh: line 31: 53596 Terminated              { curmin=`date +%H%M%S`; echo "第${i}开启管道的时间是：${curmin}"; sleep 1200; curmin=`date +%H%M%S`; echo "第${i}关闭管道的时间是：${curmin}"; echo 1>&3; }
+test_20200927.sh: line 31: 53603 Terminated              { curmin=`date +%H%M%S`; echo "第${i}开启管道的时间是：${curmin}"; sleep 1200; curmin=`date +%H%M%S`; echo "第${i}关闭管道的时间是：${curmin}"; echo 1>&3; }
+第10开启管道的时间是：122355
+第9关闭管道的时间是：122855
+第10关闭管道的时间是：124355
+的时间是：124355
+
+------------- 解决方案 --------------

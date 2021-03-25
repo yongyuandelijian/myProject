@@ -1,0 +1,522 @@
+# 北京云对比t+1(odps)和t+0(drds)数据增量差异
+
+# 整体思路
+1 在南海云对比出指定数据节点的差异部分数据
+2 将南海云的差异copytask到北京云
+3 将drds全量数据抽取到北京云
+4 将t0和t1进行主键以t1为准关联获取到缺失部分的数据 pkcy
+5 将t0和t1进行主键内关联，获取其他所有字段不相等的差异部分数据 qlcy
+6 将pkcy+qlcy合并起来推送回到drds
+
+--------------------- 1 在南海云对比出指定数据节点的差异部分数据 ---------------------
+create table kf_jc_gszj.mj_dj as 
+-- 初步核定范围为2019083-20200531
+-- 逻辑：t1存在t0不存在的就是新增，t0存在t1不存在就是删除，都存在如果主键相同，其他任何一个列不同的情况就是更新
+with 
+ startrfq as
+(select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20191231')
+,endrfq as
+(select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20200531')
+insert overwrite table kf_jc_gszj.mj_dj
+select *
+  from(
+select te.*,'I' as cd
+  from endrfq te
+  left outer join startrfq ts
+    on ts.djxh  =te.djxh 
+   and ts.sjlybz=te.sjlybz
+ where ts.djxh is null
+ union all
+select ts.*,'D' as cd
+  from startrfq ts
+  left outer join endrfq te
+    on ts.djxh  =te.djxh 
+   and ts.sjlybz=te.sjlybz
+ where te.djxh is null
+ union all
+select te.*,'U' as cd
+  from startrfq ts
+  join endrfq te
+    on ts.djxh  =te.djxh 
+   and ts.sjlybz=te.sjlybz
+ where coalesce(te.gdslx_dm       ,'') <> coalesce(ts.gdslx_dm         ,'')
+    or coalesce(te.ssdabh         ,'') <> coalesce(ts.ssdabh           ,'')
+    or coalesce(te.nsrsbh         ,'') <> coalesce(ts.nsrsbh           ,'')
+    or coalesce(te.nsrmc          ,'') <> coalesce(ts.nsrmc            ,'')
+    or coalesce(te.kzztdjlx_dm    ,'') <> coalesce(ts.kzztdjlx_dm      ,'')
+    or coalesce(te.djzclx_dm      ,'') <> coalesce(ts.djzclx_dm        ,'')
+    or coalesce(te.fddbrxm        ,'') <> coalesce(ts.fddbrxm          ,'')
+    or coalesce(te.fddbrsfzjlx_dm ,'') <> coalesce(ts.fddbrsfzjlx_dm   ,'')
+    or coalesce(te.scjydz         ,'') <> coalesce(ts.scjydz           ,'')
+    or coalesce(te.fddbrsfzjhm    ,'') <> coalesce(ts.fddbrsfzjhm      ,'')
+    or coalesce(te.scjydzxzqhsz_dm,'') <> coalesce(ts.scjydzxzqhsz_dm  ,'')
+    or coalesce(te.nsrzt_dm       ,'') <> coalesce(ts.nsrzt_dm         ,'')
+    or coalesce(te.hy_dm          ,'') <> coalesce(ts.hy_dm            ,'')
+    or coalesce(te.zcdz           ,'') <> coalesce(ts.zcdz             ,'')
+    or coalesce(te.zcdzxzqhsz_dm  ,'') <> coalesce(ts.zcdzxzqhsz_dm    ,'')
+    or coalesce(te.jdxz_dm        ,'') <> coalesce(ts.jdxz_dm          ,'')
+    or coalesce(te.dwlsgx_dm      ,'') <> coalesce(ts.dwlsgx_dm        ,'')
+    or coalesce(te.gdghlx_dm      ,'') <> coalesce(ts.gdghlx_dm        ,'')
+    or coalesce(te.djjg_dm        ,'') <> coalesce(ts.djjg_dm          ,'')
+    or coalesce(te.djrq           ,'0001-01-01') <> coalesce(ts.djrq             ,'0001-01-01')
+    or coalesce(te.zzjg_dm        ,'') <> coalesce(ts.zzjg_dm          ,'')
+    or coalesce(te.kqccsztdjbz    ,'') <> coalesce(ts.kqccsztdjbz      ,'')
+    or coalesce(te.lrr_dm         ,'') <> coalesce(ts.lrr_dm           ,'')
+    or coalesce(te.lrrq           ,'0001-01-01') <> coalesce(ts.lrrq             ,'0001-01-01')
+    or coalesce(te.xgr_dm         ,'') <> coalesce(ts.xgr_dm           ,'')
+    or coalesce(te.xgrq           ,'0001-01-01') <> coalesce(ts.xgrq             ,'0001-01-01')
+    or coalesce(te.sjgsdq         ,'') <> coalesce(ts.sjgsdq           ,'')
+    or coalesce(te.zgswj_dm       ,'') <> coalesce(ts.zgswj_dm         ,'')
+    or coalesce(te.zgswskfj_dm    ,'') <> coalesce(ts.zgswskfj_dm      ,'')
+    or coalesce(te.ssgly_dm       ,'') <> coalesce(ts.ssgly_dm         ,'')
+    or coalesce(te.fjmqybz        ,'') <> coalesce(ts.fjmqybz          ,'')
+    or coalesce(te.swdjblbz       ,'') <> coalesce(ts.swdjblbz         ,'')
+--  or coalesce(te.sjtb_sj        ,'0001-01-01') <> coalesce(ts.sjtb_sj          ,'0001-01-01')
+    or coalesce(te.nsrbm          ,'') <> coalesce(ts.nsrbm            ,'')
+    or coalesce(te.yxbz           ,'') <> coalesce(ts.yxbz             ,'')
+    or coalesce(te.shxydm         ,'') <> coalesce(ts.shxydm           ,'')
+    or coalesce(te.pgjg_dm        ,'') <> coalesce(ts.pgjg_dm          ,'')
+    or coalesce(te.gszxrq         ,'0001-01-01') <> coalesce(ts.gszxrq           ,'0001-01-01')
+--  or coalesce(te.yptetl_sj      ,'') <> coalesce(ts.yptetl_sj        ,'')
+    or coalesce(te.nsrztlx_dm     ,'') <> coalesce(ts.nsrztlx_dm       ,'')
+    or coalesce(te.sjblbz         ,0 ) <> coalesce(ts.sjblbz           ,0 )
+    or coalesce(te.myqybz         ,'') <> coalesce(ts.myqybz           ,'')
+    or coalesce(te.qyhxlb_dm      ,'') <> coalesce(ts.qyhxlb_dm        ,'')
+    or coalesce(te.qyhxly         ,'') <> coalesce(ts.qyhxly           ,'')
+)t;
+
+-- 统计结果
+select sum(gdslx_dm         )   as    gdslx_dm
+       ,sum(ssdabh           )   as   ssdabh
+       ,sum(nsrsbh           )   as   nsrsbh
+       ,sum(nsrmc            )   as   nsrmc
+       ,sum(kzztdjlx_dm      )   as   kzztdjlx_dm
+       ,sum(djzclx_dm        )   as   djzclx_dm
+       ,sum(fddbrxm          )   as   fddbrxm
+       ,sum(fddbrsfzjlx_dm   )   as   fddbrsfzjlx_dm
+       ,sum(scjydz           )   as   scjydz
+       ,sum(fddbrsfzjhm      )   as   fddbrsfzjhm
+       ,sum(scjydzxzqhsz_dm  )   as   scjydzxzqhsz_dm
+       ,sum(nsrzt_dm         )   as   nsrzt_dm
+       ,sum(hy_dm            )   as   hy_dm
+       ,sum(zcdz             )   as   zcdz
+       ,sum(zcdzxzqhsz_dm    )   as   zcdzxzqhsz_dm
+       ,sum(jdxz_dm          )   as   jdxz_dm
+       ,sum(dwlsgx_dm        )   as   dwlsgx_dm
+       ,sum(gdghlx_dm        )   as   gdghlx_dm
+       ,sum(djjg_dm          )   as   djjg_dm
+       ,sum(djrq             )   as   djrq
+       ,sum(zzjg_dm          )   as   zzjg_dm
+       ,sum(kqccsztdjbz      )   as   kqccsztdjbz
+       ,sum(lrr_dm           )   as   lrr_dm
+       ,sum(lrrq             )   as   lrrq
+       ,sum(xgr_dm           )   as   xgr_dm
+       ,sum(xgrq             )   as   xgrq
+       ,sum(sjgsdq           )   as   sjgsdq
+       ,sum(zgswj_dm         )   as   zgswj_dm
+       ,sum(zgswskfj_dm      )   as   zgswskfj_dm
+       ,sum(ssgly_dm         )   as   ssgly_dm
+       ,sum(fjmqybz          )   as   fjmqybz
+       ,sum(swdjblbz         )   as   swdjblbz
+       ,sum(nsrbm            )   as   nsrbm
+       ,sum(yxbz             )   as   yxbz
+       ,sum(shxydm           )   as   shxydm
+       ,sum(pgjg_dm          )   as   pgjg_dm
+       ,sum(gszxrq           )   as   gszxrq
+       ,sum(nsrztlx_dm       )   as   nsrztlx_dm
+       ,sum(sjblbz           )   as   sjblbz
+       ,sum(myqybz           )   as   myqybz
+       ,sum(qyhxlb_dm        )   as   qyhxlb_dm
+       ,sum(qyhxly           )   as   qyhxly
+from kf_jc_gszj.mj_dj_U;
+
++------------+------------+------------+------------+-------------+------------+------------+----------------+------------+-------------+-----------------+------------+------------+------------+---------------+------------+------------+------------+------------+------------+------------+-------------+------------+------------+------------+------------+------------+------------+-------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+
+| gdslx_dm   | ssdabh     | nsrsbh     | nsrmc      | kzztdjlx_dm | djzclx_dm  | fddbrxm    | fddbrsfzjlx_dm | scjydz     | fddbrsfzjhm | scjydzxzqhsz_dm | nsrzt_dm   | hy_dm      | zcdz       | zcdzxzqhsz_dm | jdxz_dm    | dwlsgx_dm  | gdghlx_dm  | djjg_dm    | djrq       | zzjg_dm    | kqccsztdjbz | lrr_dm     | lrrq       | xgr_dm     | xgrq       | sjgsdq     | zgswj_dm   | zgswskfj_dm | ssgly_dm   | fjmqybz    | swdjblbz   | nsrbm      | yxbz       | shxydm     | pgjg_dm    | gszxrq     | nsrztlx_dm | sjblbz     | myqybz     | qyhxlb_dm  | qyhxly     |
++------------+------------+------------+------------+-------------+------------+------------+----------------+------------+-------------+-----------------+------------+------------+------------+---------------+------------+------------+------------+------------+------------+------------+-------------+------------+------------+------------+------------+------------+------------+-------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+
+| 0          | 48659      | 388288     | 769141     | 77705       | 395555     | 1251546    | 75722          | 1493320    | 1601445     | 717082          | 5093877    | 512281     | 1458919    | 998931        | 4679509    | 303865     | 71100      | 343167     | 252757     | 176305     | 96431       | 6          | 1115       | 25325524   | 36254660   | 1085291    | 548533     | 2433335     | 13397069   | 1299       | 38968      | 7          | 556331     | 1194292    | 124718     | 390108     | 7          | 13707      | 866684     | 0          | 0          |
++------------+------------+------------+------------+-------------+------------+------------+----------------+------------+-------------+-----------------+------------+------------+------------+---------------+------------+------------+------------+------------+------------+------------+-------------+------------+------------+------------+------------+------------+------------+-------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+------------+
+
+从结果来看，影响最大的是xgr_dm和xgrq   | 25325524   | 36254660  屏蔽这两个列重新插入看下结果，
+
+
+-- 统计的是不相等的主键数量
+select count(distinct djxh) sl from kf_jc_gszj.mj_dj_U where (xgrq=1 or xgr_dm=1) and (gdslx_dm+ssdabh+nsrsbh+nsrmc+kzztdjlx_dm+djzclx_dm+fddbrxm+fddbrsfzjlx_dm+scjydz+fddbrsfzjhm+scjydzxzqhsz_dm+nsrzt_dm+hy_dm+zcdz+zcdzxzqhsz_dm+jdxz_dm+dwlsgx_dm+gdghlx_dm+djjg_dm+djrq+zzjg_dm+kqccsztdjbz+lrr_dm+lrrq+xgr_dm+xgrq+sjgsdq+zgswj_dm+zgswskfj_dm+ssgly_dm+fjmqybz+swdjblbz+nsrbm+yxbz+shxydm+pgjg_dm+gszxrq+nsrztlx_dm+sjblbz+myqybz+qyhxlb_dm+qyhxly=0);
+
+select count(distinct djxh) sl from kf_jc_gszj.mj_dj_U where gdslx_dm+ssdabh+nsrsbh+nsrmc+kzztdjlx_dm+djzclx_dm+fddbrxm+fddbrsfzjlx_dm+scjydz+fddbrsfzjhm+scjydzxzqhsz_dm+nsrzt_dm+hy_dm+zcdz+zcdzxzqhsz_dm+jdxz_dm+dwlsgx_dm+gdghlx_dm+djjg_dm+djrq+zzjg_dm+kqccsztdjbz+lrr_dm+lrrq+xgr_dm+xgrq+sjgsdq+zgswj_dm+zgswskfj_dm+ssgly_dm+fjmqybz+swdjblbz+nsrbm+yxbz+shxydm+pgjg_dm+gszxrq+nsrztlx_dm+sjblbz+myqybz+qyhxlb_dm+qyhxly=0;
+
+-- 结果都是0有点怪异，修改为每个都=0看下
+select count(distinct djxh) sl from kf_jc_gszj.mj_dj_U 
+where (xgrq=1 or xgr_dm=1) 
+and gdslx_dm         =0
+and ssdabh           =0
+and nsrsbh           =0
+and nsrmc            =0
+and kzztdjlx_dm      =0
+and djzclx_dm        =0
+and fddbrxm          =0
+and fddbrsfzjlx_dm   =0
+and scjydz           =0
+and fddbrsfzjhm      =0
+and scjydzxzqhsz_dm  =0
+and nsrzt_dm         =0
+and hy_dm            =0
+and zcdz             =0
+and zcdzxzqhsz_dm    =0
+and jdxz_dm          =0
+and dwlsgx_dm        =0
+and gdghlx_dm        =0
+and djjg_dm          =0
+and djrq             =0
+and zzjg_dm          =0
+and kqccsztdjbz      =0
+and lrr_dm           =0
+and lrrq             =0
+and xgr_dm           =0
+and xgrq             =0
+and sjgsdq           =0
+and zgswj_dm         =0
+and zgswskfj_dm      =0
+and ssgly_dm         =0
+and fjmqybz          =0
+and swdjblbz         =0
+and nsrbm            =0
+and yxbz             =0
+and shxydm           =0
+and pgjg_dm          =0
+and gszxrq           =0
+and nsrztlx_dm       =0
+and sjblbz           =0
+and myqybz           =0
+and qyhxlb_dm        =0
+and qyhxly           =0
+;
+
+结果都是0上面这样分析不合理
+
+
+
+--------------------- 2 将南海云的差异copytask到北京云 ---------------------
+2.1 创建表
+将南海云表结构通过export table mj_dj; 导出后再北京云进行创建
+2.2 复制
+/home/admin/odps/bin/odpscmd --project=kf_jc_gszj --config='/home/admin/bj.conf' -e "copy -o -d import -url http://dt.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/kf_jc_gszj/mj_dj -t kf_jc_gszj.mj_dj -e http://service.cn-foshan-lhc-d01.odps.alicloud.its.tax.cn/api -rid yXKpKuN0xKF5MLpK -rkey 1glCWzC8XkTT3BSpoY9NkYMibQslxB"
+
+--------------------- 3 将drds全量数据抽取到北京云 ---------------------
+cd /home/admin/lipengchao
+sh drdstoopds.sh 20201222 t0_tablelist
+
+-- 通过对drds数据根据readtime字段分析发现 其实数据应该大规模补充增量从12月底开始的，
+-- 通过对12月数据按天分析，发现集中在29,30,31但是目前只有31号分区，所以使用20191231核对南海云差异进来比较合理
+| yf         | ts         |
++------------+------------+
+| 2019-12    | 8739       |
+| 2020-01    | 280412     |
+| 2020-02    | 568154     |	
+| 2020-03    | 3505179    |
+| 2020-04    | 3789344    |
+| 2020-05    | 6653593    |
+| 2020-06    | 4795042    |
+| 2020-07    | 4365837    |
+| 2020-08    | 4013071    |
+| 2020-09    | 6895679    |
+| 2020-10    | 4258742    |
+| 2020-11    | 15117515   |
+| 2020-12    | 5551660    |
+
+| NULL       | 1          |
+|            | 36         |
+| NULL       | 12         |
+| readtim    | 1          |
+|            | 5          |
+
+
+
+--------------------- 4 将t0和t1进行主键以t1为准关联获取到缺失部分的数据 pkcy ---------------------
+
+-- 获取到t1和t0差异
+create table mj_dj_cy2 as
+select t1.* from
+(select * from kf_jc_gszj.mj_dj) t1
+left join (select djxh,sjlybz_jz as sjlybz from KF_JC_GSZJ.L_HX_DJ_DJ_NSRXX where rfq='20201222' and substr(readtime,1,4)>='2020' ) t0
+on t0.djxh=t1.djxh and t0.sjlybz=t1.sjlybz
+where t0.djxh is null ;
+
+-- 这是能关联上的情况
+select count(t1.djxh) c1,count(t0.djxh) as c2 from
+(select djxh,sjlybz from kf_jc_gszj.mj_dj) t1
+left join (select djxh,sjlybz_jz as sjlybz from KF_JC_GSZJ.L_HX_DJ_DJ_NSRXX where rfq='20201222' and substr(readtime,1,4)>='2020' ) t0
+on t0.djxh=t1.djxh and t0.sjlybz=t1.sjlybz;
+
+ 25286340   | 23323286   |
+| 25286340   | 23321939   |
+-- 分析差异在各个时间字段上是否有规律，来方便我们过滤掉脏数据进行分析  通过查看各个单位抽取的数据明细我们认为比较有意义的时间字段是 readtime 和 sjtb_sj 对这两个字段分别分析
+
+select substr(readtime,1,7) as yf,count(1) as ts from KF_JC_GSZJ.L_HX_DJ_DJ_NSRXX where rfq='20201222' group by substr(readtime,1,7);   分析drds的增量在时间上分布
+
+| NULL       | 255        |
+| 200606     | 3          |
+| 200607     | 1          |
+| 200703     | 1          |
+| 200807     | 1          |
+| 200810     | 1          |
+| 200901     | 1          |
+| 200905     | 1          |
+| 200908     | 1          |
+| 201008     | 1          |
+| 201011     | 1          |
+| 201101     | 4          |
+| 201103     | 1          |
+| 201104     | 10         |
+| 201105     | 11         |
+| 201106     | 7          |
+| 201107     | 4          |
+| 201110     | 4          |
+| 201111     | 7          |
+| 201112     | 9          |
+| 201201     | 238        |
+| 201202     | 6          |
+| 201203     | 6          |
+| 201204     | 11         |
+| 201205     | 4          |
+| 201206     | 8          |
+| 201207     | 19         |
+| 201208     | 27         |
+| 201209     | 16         |
+| 201210     | 15         |
+| 201211     | 30         |
+| 201212     | 17         |
+| 201301     | 22         |
+| 201302     | 11         |
+| 201303     | 7          |
+| 201304     | 11         |
+| 201305     | 14         |
+| 201306     | 14         |
+| 201307     | 10         |
+| 201308     | 32         |
+| 201309     | 49         |
+| 201310     | 22         |
+| 201311     | 46         |
+| 201312     | 50         |
+| 201401     | 81         |
+| 201402     | 40         |
+| 201403     | 56         |
+| 201404     | 52         |
+| 201405     | 26         |
+| 201406     | 54         |
+| 201407     | 42         |
+| 201408     | 24         |
+| 201409     | 30         |
+| 201410     | 40         |
+| 201411     | 86         |
+| 201412     | 67         |
+| 201501     | 36         |
+| 201502     | 47         |
+| 201503     | 20         |
+| 201504     | 40         |
+| 201505     | 52         |
+| 201506     | 51         |
+| 201507     | 52         |
+| 201508     | 42         |
+| 201509     | 63         |
+| 201510     | 34         |
+| 201511     | 127        |
+| 201512     | 107        |
+| 201601     | 1          |
+| 201602     | 10         |
+| 201603     | 2          |
+| 201604     | 9          |
+| 201605     | 11         |
+| 201606     | 3          |
+| 201607     | 5          |
+| 201608     | 147        |
+| 201609     | 13         |
+| 201610     | 15         |
+| 201611     | 10         |
+| 201612     | 338        |
+| 201701     | 18         |
+| 201702     | 65         |
+| 201703     | 79         |
+| 201704     | 75         |
+| 201705     | 151        |
+| 201706     | 176        |
+| 201707     | 181        |
+| 201708     | 270        |
+| 201709     | 666        |
+| 201710     | 250        |
+| 201711     | 556        |
+| 201712     | 1000       |
+| 201801     | 10317      |
+| 201802     | 525        |
+| 201803     | 1610       |
+| 201804     | 1211       |
+| 201805     | 1473       |
+| 201806     | 1381       |
+| 201807     | 2680       |
+| 201808     | 1469       |
+| 201809     | 1470       |
+| 201810     | 1402       |
+| 201811     | 8469       |
+| 201812     | 3989       |
+| 201901     | 2270       |
+| 201902     | 1601       |
+| 201903     | 3536       |
+| 201904     | 4158       |
+| 201905     | 4382       |
+| 201906     | 2890       |
+| 201907     | 3589       |
+| 201908     | 4809       |
+| 201909     | 4868       |
+| 201910     | 3578       |
+| 201911     | 3243       |
+| 201912     | 3952       |
+| 202001     | 1671323    |
+| 202002     | 33538      |
+| 202003     | 160063     |
+| 202004     | 14275      |
+| 202005     | 1          |
+
+select to_char(sjtb_sj,'yyyymm'),count(1) ts from mj_dj_cy2 group by to_char(sjtb_sj,'yyyymm');
+| 201501     | 2          |
+| 201901     | 2          |
+| 201902     | 1          |
+| 201903     | 43         |
+| 201904     | 154        |
+| 201905     | 218        |
+| 201906     | 108        |
+| 201907     | 348        |
+| 201908     | 1266       |
+| 201909     | 1167       |
+| 201910     | 107        |
+| 201911     | 235        |
+| 201912     | 199        |
+| 202001     | 1692460    |
+| 202002     | 33547      |
+| 202003     | 220109     |
+| 202004     | 14434      |
+| 202005     | 1          |
+
+-- 对差异数据的类型分析
+select cd,count(1) ts from mj_dj_cy2 group by cd;
+| D          | 3          |
+| I          | 425133     |
+| U          | 1539265    
+select * from mj_dj_cy2 where cd='D'  对数据量较少的明细验证
+
+| 10112224010000054606 | 1          | 91220700245239669W | 91220700245239669W | 松原一建集团建设有限公司 | 1140        | 159        | 张文         | 201            | 敦化市        | 222301195509202114 | 222403          | 09         | 4999       | 敦化市        | 222403        | 222403207  | 52         | NULL       | 12224030600 | 2018-05-24 00:00:00 | 245239669  | N           | 12224001629 | 2018-05-24 09:22:26 | 22207000858 | 2019-01-16 08:48:56 | 12224034100 | 12224030000 | 12224034100 | NULL       | N          | N          | 2019-01-16 08:51:59 | NULL       | Y          | 91220700245239669W | NULL       | NULL       | 2019-11-27 17:54:27 | NULL       | 0          | NULL       | NULL       | NULL       | 20191231   | JLST       | D          |
+| 10126402010000021213 | 1          | 10116402010000007450 | 64010319660502183401 | 石嘴山市原煤机一二厂棚户区改造项目建设管理办公室1 | 1134        | 190        | 李小宏        | 201            | 石嘴山市大武口区舍予A区三号路以东，九号路以北 | 640103196605021834 | 640202          | 03         | 7090       | 石嘴山市大武口区舍予A区三号路以东，九号路以北 | 640202        | 640202011  | 51         | 1          | 16402021500 | 2017-08-24 00:00:00 | NULL       | N           | 16402020096 | 2017-08-24 09:17:14 | 26402900101 | 2019-10-10 16:10:09 | 16402000000 | 16402020000 | 16402022300 | 16402020069 | N          | Y          | 2019-10-10 16:16:56 | NULL       | Y          | NULL       | NULL       | NULL       | NULL       | NULL       | NULL       | 000000000037 | NULL       | NULL       | 20191231   | NXST       | D          |
+| 10123412010000073344 | 1          | 10123401000001147166 | 34010419620222051903 | 中铁四局集团有限公司 | 1140        | 159        | 张河川        | 201            | 安徽省阜阳市颍州区  | 340104196202220519 | 341202          | 09         | 4811       | 安徽省阜阳市颍州区  | 341202        | 341202201  | 52         | NULL       | 13412110200 | 2018-08-15 00:00:00 | 149185525  | N           | 13412000612 | 2018-08-15 16:00:20 | 13401060208 | 2019-10-16 15:03:48 | 13412117100 | 13412110000 | 13412110200 | 23412020036 | N          | N          | 2019-10-16 15:03:51 | NULL       | Y          | 913400001491855256 | 13412110200 | NULL       | NULL       | NULL       | 0          | NULL       | NULL       | NULL       | 20191231   | AHST       | D          |
+
+-- 通过在odps北京云和南海云校验确实为删除
+select * from sc_jc_gszj.hx_dj_dj_nsrxx where rfq='20210111' and djxh  in ('10112224010000054606','10126402010000021213','10123412010000073344');
+
+
+---------- 统计数据drds数据更新日期在设定日期范围内的（2020年1月到5月）
+select dt,count(t0.djxh)
+from(select * from kf_jc_gszj.mj_dj) t1
+left join (
+select djxh,sjlybz_jz as sjlybz ,case when substr(readtime,1,10)>'2020-05-31' then 1 else 0 end as dt
+from kf_jc_gszj.l_hx_dj_dj_nsrxx where rfq='20201222' and substr(readtime,1,4)>='2020' ) t0
+on t0.djxh=t1.djxh and t0.sjlybz=t1.sjlybz
+group by dt;
+
+从结果得到在范围内缺失的数据是14575297
+| dt         | _c1        |
++------------+------------+
+| NULL       | 0          |
+| 0          | 14575297   |
+| 1          | 8746642    |
+
+-- 获取到实际差异，这两次的差异是是不是要限制这个时间小于6月1日，当然个人觉得应该是不受限制，毕竟后面更新了，也是算更新了，就不用再去处理了
+select count(t0.djxh)
+ from(select * from kf_jc_gszj.mj_dj) t1
+left join(select djxh,sjlybz_jz as sjlybz
+  from kf_jc_gszj.l_hx_dj_dj_nsrxx 
+ where rfq='20201222'
+   and readtime>='2020-01-01 00:00:00'
+   and readtime<='2020-05-31 23:59:59')t0
+    on t0.djxh  =t1.djxh
+   and t0.sjlybz=t1.sjlybz
+ where t0.djxh is not null;
+  14575297  从结果看和上面一致没有问题  这是再指定时间内可以关联上的
+ 
+ -- 这是主键差异的   1964401
+ create table mj_dj_cy2 as
+select t1.* from
+(select * from kf_jc_gszj.mj_dj) t1
+left join (select djxh,sjlybz_jz as sjlybz from KF_JC_GSZJ.L_HX_DJ_DJ_NSRXX where rfq='20201222' and substr(readtime,1,4)>='2020' ) t0
+on t0.djxh=t1.djxh and t0.sjlybz=t1.sjlybz
+where t0.djxh is null ;
+ 
+ 
+ 
+-- 提供出去校验  另一个是 SC_MX_WBGX.SJBD_NSRXX_QTZDCY 
+create table SC_MX_WBGX.SJBD_NSRXX_PKCY as
+select * from kf_jc_gszj.mj_dj_cy2;
+ 
+ --------------------- 5 将t0和t1进行主键内关联，获取其他所有字段不相等的差异部分数据 qlcy ---------------------
+
+ select count(*)
+  from(
+select * from kf_jc_gszj.mj_dj) t1
+  join(
+select *
+  from kf_jc_gszj.l_hx_dj_dj_nsrxx 
+ where rfq='20201222'
+   and readtime>='2020-01-01 00:00:00'
+   and readtime<='2020-05-31 23:59:59')t0
+    on t0.djxh     =t1.djxh
+   and t0.sjlybz_jz=t1.sjlybz
+ where coalesce(t1.gdslx_dm       ,'') <> coalesce(t0.gdslx_dm         ,'')
+    or coalesce(t1.ssdabh         ,'') <> coalesce(t0.ssdabh           ,'')
+    or coalesce(t1.nsrsbh         ,'') <> coalesce(t0.nsrsbh           ,'')
+    or coalesce(t1.nsrmc          ,'') <> coalesce(t0.nsrmc            ,'')
+    or coalesce(t1.kzztdjlx_dm    ,'') <> coalesce(t0.kzztdjlx_dm      ,'')
+    or coalesce(t1.djzclx_dm      ,'') <> coalesce(t0.djzclx_dm        ,'')
+    or coalesce(t1.fddbrxm        ,'') <> coalesce(t0.fddbrxm          ,'')
+    or coalesce(t1.fddbrsfzjlx_dm ,'') <> coalesce(t0.fddbrsfzjlx_dm   ,'')
+    or coalesce(t1.scjydz         ,'') <> coalesce(t0.scjydz           ,'')
+    or coalesce(t1.fddbrsfzjhm    ,'') <> coalesce(t0.fddbrsfzjhm      ,'')
+    or coalesce(t1.scjydzxzqhsz_dm,'') <> coalesce(t0.scjydzxzqhsz_dm  ,'')
+    or coalesce(t1.nsrzt_dm       ,'') <> coalesce(t0.nsrzt_dm         ,'')
+    or coalesce(t1.hy_dm          ,'') <> coalesce(t0.hy_dm            ,'')
+    or coalesce(t1.zcdz           ,'') <> coalesce(t0.zcdz             ,'')
+    or coalesce(t1.zcdzxzqhsz_dm  ,'') <> coalesce(t0.zcdzxzqhsz_dm    ,'')
+    or coalesce(t1.jdxz_dm        ,'') <> coalesce(t0.jdxz_dm          ,'')
+    or coalesce(t1.dwlsgx_dm      ,'') <> coalesce(t0.dwlsgx_dm        ,'')
+    or coalesce(t1.gdghlx_dm      ,'') <> coalesce(t0.gdghlx_dm        ,'')
+    or coalesce(t1.djjg_dm        ,'') <> coalesce(t0.djjg_dm          ,'')
+    or coalesce(t1.djrq           ,'0001-01-01') <> coalesce(t0.djrq             ,'0001-01-01')
+    or coalesce(t1.zzjg_dm        ,'') <> coalesce(t0.zzjg_dm          ,'')
+    or coalesce(t1.kqccsztdjbz    ,'') <> coalesce(t0.kqccsztdjbz      ,'')
+    or coalesce(t1.lrr_dm         ,'') <> coalesce(t0.lrr_dm           ,'')
+    or coalesce(t1.lrrq           ,'0001-01-01') <> coalesce(t0.lrrq             ,'0001-01-01')
+    or coalesce(t1.xgr_dm         ,'') <> coalesce(t0.xgr_dm           ,'')
+    or coalesce(t1.xgrq           ,'0001-01-01') <> coalesce(t0.xgrq             ,'0001-01-01')
+    or coalesce(t1.sjgsdq         ,'') <> coalesce(t0.sjgsdq           ,'')
+    or coalesce(t1.zgswj_dm       ,'') <> coalesce(t0.zgswj_dm         ,'')
+    or coalesce(t1.zgswskfj_dm    ,'') <> coalesce(t0.zgswskfj_dm      ,'')
+    or coalesce(t1.ssgly_dm       ,'') <> coalesce(t0.ssgly_dm         ,'')
+    or coalesce(t1.fjmqybz        ,'') <> coalesce(t0.fjmqybz          ,'')
+    or coalesce(t1.swdjblbz       ,'') <> coalesce(t0.swdjblbz         ,'')
+--  or coalesce(t1.sjtb_sj        ,'0001-01-01') <> coalesce(t0.sjtb_sj          ,'0001-01-01')
+    or coalesce(t1.nsrbm          ,'') <> coalesce(t0.nsrbm            ,'')
+    or coalesce(t1.yxbz           ,'') <> coalesce(t0.yxbz             ,'')
+    or coalesce(t1.shxydm         ,'') <> coalesce(t0.shxydm           ,'')
+    or coalesce(t1.pgjg_dm        ,'') <> coalesce(t0.pgjg_dm          ,'')
+    or coalesce(t1.gszxrq         ,'0001-01-01') <> coalesce(t0.gszxrq           ,'0001-01-01')
+--  or coalesce(t1.yptetl_sj      ,'') <> coalesce(t0.yptetl_sj        ,'')
+    or coalesce(t1.nsrztlx_dm     ,'') <> coalesce(t0.nsrztlx_dm       ,'')
+    or coalesce(t1.sjblbz         ,0 ) <> coalesce(t0.sjblbz           ,0 )
+    or coalesce(t1.myqybz         ,'') <> coalesce(t0.myqybz           ,'')
+--    or coalesce(t1.qyhxlb_dm      ,'') <> coalesce(t0.qyhxlb_dm        ,'')
+--    or coalesce(t1.qyhxly         ,'') <> coalesce(t0.qyhxly           ,'')
+;
++------------+
+| _c0        |
++------------+
+| 144400     |
++------------+
+
+ --------------------- 6 将pkcy+qlcy合并起来推送回到drds ---------------------
+ 
+sh odpstodrds.sh cy20201222 l_hx_dj_dj_nsrxx

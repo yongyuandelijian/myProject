@@ -32,12 +32,32 @@ class getsqldata(object):
         db.close()
         return data
 
+    def getzlzData(self, sql):
+        '''功能：查询治理组的数据库'''
+        db = pymysql.connect(host="99.15.2.214", user="cs_dsjsjzlpt", passwd="Css_sjzl_0616", db="cs_sjzlpt")
+        cursor = db.cursor()
+        cursor.execute(sql)
+        data = cursor.fetchall()
+        db.close()
+        # 为了解决部分int数据被处理成float所以单独处理下，如果有更好的方式，可以去除这里
+        data_list=[]
+        # print(data)
+        if data and type(data)==tuple:
+            for r in data:
+                temp_list = []
+                if r and type(r)==tuple:
+                    for c in r:
+                        if type(c) == float:
+                            c = int(c)
+                        temp_list.append(c)
+                data_list.append(temp_list)
+        return data_list
+
     def getMetaData(self, sql):
-        '''功能：根据传入的sql获取到数据，然后将数据返回'''
+        '''功能：查询元仓的数据库'''
         db = pymysql.connect(host="99.13.222.50", user="systemdata", passwd="systemdata_0705", db="systemdata")
         cursor = db.cursor()
         cursor.execute(sql)
         data = cursor.fetchall()
-        # db.commit()  # 除了查询语句其他的看自己需求是否要提交
         db.close()
         return data
